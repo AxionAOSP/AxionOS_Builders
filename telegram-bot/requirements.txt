@@ -1,0 +1,5 @@
+python-telegram-bot
+redis
+python-dotenv
+requests
+PyGithub
