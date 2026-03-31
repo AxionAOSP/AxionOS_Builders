@@ -47,6 +47,7 @@ async def set_bot_commands(app):
         BotCommand("quota", "Check build limits"),
         BotCommand("cancel", "Cancel a running build"),
         BotCommand("save", "Save DB to GitHub (Admin)"),
+        BotCommand("setchannel", "Set main output channel (Admin)"),
         BotCommand("help", "Show all commands")
     ]
     try:
