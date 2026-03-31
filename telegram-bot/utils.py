@@ -60,7 +60,10 @@ from collections import defaultdict
 
 class RedisPersistence(BasePersistence):
     def __init__(self):
-        super().__init__(store_user_data=True, store_chat_data=True, store_bot_data=True)
+        super().__init__()
+        self.store_user_data = True
+        self.store_chat_data = True
+        self.store_bot_data = True
         self.r = None
 
     async def _init_redis(self):
