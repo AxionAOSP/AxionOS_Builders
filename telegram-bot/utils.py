@@ -97,9 +97,9 @@ class RedisPersistence(BasePersistence):
         await self._init_redis()
         await self.r.set(RK_PERSIST_BOT, json.dumps(data))
 
-    async def refresh_bot_data(self, data): pass
-    async def refresh_chat_data(self, chat_id, data): pass
-    async def refresh_user_data(self, user_id, data): pass
+    async def refresh_bot_data(self, bot_data): pass
+    async def refresh_chat_data(self, chat_id, chat_data): pass
+    async def refresh_user_data(self, user_id, user_data): pass
 
     async def drop_chat_data(self, chat_id):
         await self._init_redis()
