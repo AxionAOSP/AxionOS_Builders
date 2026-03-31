@@ -8,21 +8,21 @@
       "added_by": "1484367093",
       "added_date": "2026-03-31"
     },
-    "7170050310": {
-      "username": "7170050310",
-      "role": "admin",
-      "last_build_date": "2026-03-26",
-      "daily_count": 0
-    },
     "1484367093": {
       "username": "Saikrishna1504",
       "role": "owner",
       "last_build_date": "2026-03-31",
       "daily_count": 4
+    },
+    "7170050310": {
+      "username": "7170050310",
+      "role": "admin",
+      "last_build_date": "2026-03-26",
+      "daily_count": 0
     }
   },
   "allowed_chats": [
-    "-1001668507245",
-    "-1002929964497"
+    "-1002929964497",
+    "-1001668507245"
   ]
 }
