@@ -50,6 +50,55 @@ ROLE_OWNER = "owner"
 RK_USERS = "axn:users"
 RK_CHATS = "axn:chats"
 RK_CONFIG = "axn:config"
+RK_PERSIST_USER = "axn:persist:user"
+RK_PERSIST_CHAT = "axn:persist:chat"
+RK_PERSIST_BOT = "axn:persist:bot"
+
+# === REDIS PERSISTENCE FOR TELEGRAM BOT ===
+from telegram.ext import BasePersistence
+from collections import defaultdict
+
+class RedisPersistence(BasePersistence):
+    def __init__(self):
+        super().__init__(store_user_data=True, store_chat_data=True, store_bot_data=True)
+        self.r = None
+
+    async def _init_redis(self):
+        if not self.r:
+            self.r = await get_redis()
+
+    async def get_user_data(self):
+        await self._init_redis()
+        data = await self.r.hgetall(RK_PERSIST_USER)
+        return {int(k): json.loads(v) for k, v in data.items()}
+
+    async def update_user_data(self, user_id, data):
+        await self._init_redis()
+        await self.r.hset(RK_PERSIST_USER, str(user_id), json.dumps(data))
+
+    async def get_chat_data(self):
+        await self._init_redis()
+        data = await self.r.hgetall(RK_PERSIST_CHAT)
+        return {int(k): json.loads(v) for k, v in data.items()}
+
+    async def update_chat_data(self, chat_id, data):
+        await self._init_redis()
+        await self.r.hset(RK_PERSIST_CHAT, str(chat_id), json.dumps(data))
+
+    async def get_bot_data(self):
+        await self._init_redis()
+        data = await self.r.get(RK_PERSIST_BOT)
+        return json.loads(data) if data else {}
+
+    async def update_bot_data(self, data):
+        await self._init_redis()
+        await self.r.set(RK_PERSIST_BOT, json.dumps(data))
+
+    async def get_callback_data(self): return None
+    async def update_callback_data(self, data): pass
+    async def get_conversation_data(self): return {}
+    async def update_conversation_data(self, name, key, data): pass
+    async def flush(self): pass
 
 # === REDIS CLIENT ===
 _redis_pool = None

@@ -1,6 +1,8 @@
 import os
 import sys
 import asyncio
+import time
+import json
 
 # === CUSTOM LIBRARY LOADER ===
 custom_lib_path = os.path.expanduser("~/pylib")
@@ -17,12 +19,12 @@ from telegram.request import HTTPXRequest
 from dotenv import load_dotenv
 
 # Import Utils
-from utils import BOT_TOKEN, REDIS_URL, fetch_db_from_github, get_redis
+from utils import BOT_TOKEN, REDIS_URL, fetch_db_from_github, get_redis, RedisPersistence
 
 # Import Handlers
 from handlers.github import (
     build_command, status_command, queue_command, quota_command, cancel_command,
-    handle_github_callbacks
+    handle_github_callbacks, get_workflow_runs
 )
 from handlers.admin import (
     add_user_command, remove_user_command, set_role_command, 
@@ -56,6 +58,33 @@ async def set_bot_commands(app):
     except Exception as e:
         print(f"[ERROR] Failed to set commands: {e}")
 
+async def sync_active_builds():
+    """Startup task to populate Redis with active GitHub runs"""
+    runs = await get_workflow_runs(status="in_progress")
+    if not runs: return
+    
+    r = await get_redis()
+    print(f"[INIT] Found {len(runs)} active builds. Re-syncing...")
+    
+    for run in runs:
+        # Reconstruct device from title if possible
+        title = run.get("display_title", "") or run.get("name", "")
+        if "(" in title:
+            device = title.split("(")[0].strip()
+            
+            # Create minimal entry if missing
+            if not await r.exists(f"build_status:{device}"):
+                data = {
+                    "status": "Resumed (Monitoring...)",
+                    "device": device,
+                    "url": run.get("html_url"),
+                    "run_id": run.get("id"),
+                    "updated_at": int(time.time()),
+                    "progress": "Resuming progress tracking..."
+                }
+                await r.set(f"build_status:{device}", json.dumps(data), ex=86400)
+                await r.set("active_build_device", device, ex=86400)
+
 async def main():
     if not BOT_TOKEN or not REDIS_URL:
         print("[ERROR] Config Missing. Check private.env")
@@ -69,11 +98,13 @@ async def main():
         # Load fresh data from GitHub into Redis on startup
         print("[INIT] Refreshing DB cache from GitHub...")
         await fetch_db_from_github()
+        # Re-sync active builds
+        await sync_active_builds()
     except Exception as e:
         print(f"[ERROR] Startup: {e}")
         return
 
-    # 2. Build App with Optimized HTTPX Request
+    # 2. Build App with Optimized HTTPX Request and Persistence
     trequest = HTTPXRequest(
         connection_pool_size=30,
         read_timeout=60.0,
@@ -81,7 +112,9 @@ async def main():
         connect_timeout=60.0,
         pool_timeout=60.0
     )
-    app = ApplicationBuilder().token(BOT_TOKEN).request(trequest).build()
+    
+    persistence = RedisPersistence()
+    app = ApplicationBuilder().token(BOT_TOKEN).request(trequest).persistence(persistence).build()
 
     # Inject Redis into bot_data (Async compatible)
     app.bot_data["redis"] = r
