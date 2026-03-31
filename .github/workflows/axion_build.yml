@@ -46,6 +46,14 @@ on:
         description: 'Triggered By (ID)'
         required: true
         default: '0'
+      CHAT_ID:
+        description: 'Telegram Chat ID for notifications'
+        required: false
+        default: ''
+      TOPIC_ID:
+        description: 'Telegram Topic ID (for Forums)'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -63,8 +71,8 @@ jobs:
       BUILD_USER_ID: ${{ inputs.BUILD_USER_ID }}
 
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      TOPIC_BUILDER: ${{ secrets.TOPIC_BUILDER }}
+      TELEGRAM_CHAT_ID: ${{ inputs.CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+      TOPIC_BUILDER: ${{ inputs.TOPIC_ID || secrets.TOPIC_BUILDER }}
       TOPIC_ERROR_LOGS: ${{ secrets.TOPIC_ERROR_LOGS }}
       TOPIC_RELEASE_JSON: ${{ secrets.TOPIC_RELEASE_JSON }}
 

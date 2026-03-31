@@ -301,7 +301,9 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'DEVICE': dev, 'RELEASETYPE': 'userdebug', 'GMS_VARIANT': 'Core',
         'FULLCLEAN': 'No', 'LOCAL_MANIFEST_URL': url,
         'BUILD_USER': update.effective_user.username or update.effective_user.first_name,
-        'BUILD_USER_ID': str(uid)
+        'BUILD_USER_ID': str(uid),
+        'CHAT_ID': str(update.effective_chat.id),
+        'TOPIC_ID': str(update.effective_message.message_thread_id or "")
     }
     context.user_data['pending_build'] = params
     
