@@ -511,12 +511,19 @@ def main():
     init_boot_path = os.path.join(out_dir, "init_boot.img")
     uploaded_extras = {} # Name -> Link
     
+    # Check for recovery image (standard for AOSP builds)
+    recovery_path = os.path.join(out_dir, "recovery.img")
+    
     if os.path.exists(init_boot_path):
         # Modern device structure: boot, vendor_boot, init_boot
         target_imgs = ["boot.img", "vendor_boot.img", "init_boot.img"]
     else:
-        # Standard device structure: just boot
-        target_imgs = ["boot.img"]
+        # Standard device structure: boot, recovery
+        target_imgs = ["boot.img", "recovery.img"]
+    
+    # Always include recovery if it exists regardless of structure
+    if os.path.exists(recovery_path) and "recovery.img" not in target_imgs:
+        target_imgs.append("recovery.img")
     
     for img_name in target_imgs:
         img_path = os.path.join(out_dir, img_name)

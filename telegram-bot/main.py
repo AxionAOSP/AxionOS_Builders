@@ -13,13 +13,13 @@ if os.path.isdir(custom_lib_path):
 
 # === IMPORTS ===
 import redis.asyncio as redis
-from telegram import BotCommand, BotCommandScopeDefault, BotCommandScopeAllGroupChats
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler
+from telegram import BotCommand, BotCommandScopeDefault, BotCommandScopeAllGroupChats, Update
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 from telegram.request import HTTPXRequest
 from dotenv import load_dotenv
 
 # Import Utils
-from utils import BOT_TOKEN, REDIS_URL, fetch_db_from_github, get_redis, RedisPersistence
+from utils import BOT_TOKEN, REDIS_URL, fetch_db_from_github, get_redis, RedisPersistence, OWNER_ID
 
 # Import Handlers
 from handlers.github import (
@@ -86,6 +86,22 @@ async def sync_active_builds():
                 await r.set(f"build_status:{device}", json.dumps(data), ex=86400)
                 await r.set("active_build_device", device, ex=86400)
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a Telegram message to notify the developer."""
+    print(f"[ERROR] Exception while handling an update: {context.error}")
+    
+    if OWNER_ID:
+        try:
+            # Create a clean error message
+            err_msg = str(context.error)
+            await context.bot.send_message(
+                chat_id=OWNER_ID,
+                text=f"🚨 **Bot Error Detected**\n\n<code>{err_msg[:4000]}</code>",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print(f"[ERROR] Failed to send error message to owner: {e}")
+
 async def main():
     if not BOT_TOKEN or not REDIS_URL:
         print("[ERROR] Config Missing. Check private.env")
@@ -116,6 +132,9 @@ async def main():
     
     persistence = RedisPersistence()
     app = ApplicationBuilder().token(BOT_TOKEN).request(trequest).persistence(persistence).build()
+
+    # Add error handler
+    app.add_error_handler(error_handler)
 
     # Inject Redis into bot_data (Async compatible)
     app.bot_data["redis"] = r

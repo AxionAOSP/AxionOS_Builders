@@ -82,8 +82,8 @@ while [ ! -f "$DONE_FILE" ]; do
             # Remove ANSI colors for parsing
             gsub(/\x1b\[[0-9;]*m/, "");
             
-            # Match: [ 1% 10/1000] Description...
-            match($0, /^\[\s*([0-9]+)% ([0-9]+\/[0-9]+)([^]]*)\] (.*)/, arr);
+            # Match: [ 1% 10/1000] Description... (Handle variable whitespace)
+            match($0, /^\[\s*([0-9]+)%\s+([0-9]+\/[0-9]+)([^]]*)\]\s*(.*)/, arr);
             
             if (arr[1] != "" && arr[2] != "") {
                  print arr[1] "," arr[2] "," arr[4] > logfile;
