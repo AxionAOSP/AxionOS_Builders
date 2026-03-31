@@ -173,6 +173,9 @@ def main():
     parser.add_argument('--full-clean', default="No", help="Full Clean (Yes/No)")
     
     args = parser.parse_args()
+    print(f"[REPORTER] Starting for device {args.device} (Status: {args.status})")
+    print(f"[REPORTER] Target Chat ID: {args.chat_id}")
+    
     bot = TelegramBot(args.token)
     workspace = os.environ.get('WORKSPACE') or os.environ.get('GITHUB_WORKSPACE') or '.'
     out_dir = os.path.join(args.source_dir, 'out', 'target', 'product', args.device)

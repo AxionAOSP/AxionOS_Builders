@@ -345,13 +345,15 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
             r = await get_redis()
             from utils import RK_CONFIG
             main_chan = await r.hget(RK_CONFIG, "main_output_channel")
+            target_desc = "Current Chat"
             if main_chan:
                 p["CHAT_ID"] = main_chan
-                p["TOPIC_ID"] = "" # Reset topic if moving to channel
+                p["TOPIC_ID"] = "none" # Use 'none' to explicitly disable topics in channel
+                target_desc = f"Channel (ID: {main_chan})"
             
-            await query.edit_message_text("⏳ <b>Dispatching Workflow...</b>", parse_mode=ParseMode.HTML)
+            await query.edit_message_text(f"⏳ <b>Dispatching Workflow...</b>\nOutput: <code>{target_desc}</code>", parse_mode=ParseMode.HTML)
             if await trigger_workflow(p):
-                await query.edit_message_text(f"✅ <b>Build Started!</b>\nDevice: <code>{p['DEVICE']}</code>\nCheck /status shortly.", parse_mode=ParseMode.HTML)
+                await query.edit_message_text(f"✅ <b>Build Started!</b>\nDevice: <code>{p['DEVICE']}</code>\nOutput: <code>{target_desc}</code>\nCheck channel shortly.", parse_mode=ParseMode.HTML)
                 # Update Redis Locally (No commit to GitHub to avoid 2 commits)
                 def inc_mod(d):
                     d["daily_count"] = d.get("daily_count", 0) + 1

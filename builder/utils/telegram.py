@@ -30,7 +30,7 @@ class TelegramBot:
             "parse_mode": parse_mode,
             "disable_web_page_preview": True
         }
-        if topic_id:
+        if topic_id and str(topic_id).lower() != "none" and str(topic_id).strip() != "":
             data["message_thread_id"] = topic_id
         if reply_markup:
             data["reply_markup"] = json.dumps(reply_markup)
@@ -52,7 +52,7 @@ class TelegramBot:
             "caption": caption,
             "parse_mode": parse_mode
         }
-        if topic_id:
+        if topic_id and str(topic_id).lower() != "none" and str(topic_id).strip() != "":
             data["message_thread_id"] = topic_id
 
         try:
