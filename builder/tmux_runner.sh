@@ -55,8 +55,10 @@ ENV_EXPORT=""
 for var in "${ENV_VARS[@]}"; do
     # Get value of variable by name
     val="${!var}"
-    # Append to export string, escaping double quotes in value
-    ENV_EXPORT+="export $var=\"${val//\"/\\\"}\"; "
+    if [ -n "$val" ]; then
+        # Append to export string, escaping double quotes in value
+        ENV_EXPORT+="export $var=\"${val//\"/\\\"}\"; "
+    fi
 done
 
 TMUX_CMD="set +e; $ENV_EXPORT $COMMAND; echo \$? > $EXIT_CODE_FILE; touch $DONE_FILE"

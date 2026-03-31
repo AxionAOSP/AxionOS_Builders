@@ -188,16 +188,21 @@ jobs:
 
           BUILD_CMD="cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/build.sh \"$DEVICE\" \"$RELEASETYPE\" \"$FULLCLEAN\""
 
-          ${{ github.workspace }}/builder/tmux_runner.sh \
+          if ${{ github.workspace }}/builder/tmux_runner.sh \
             "axion_build" \
             "$BUILD_CMD" \
             "${{ github.workspace }}/build.log" \
-            "${{ github.workspace }}/progress.txt"
+            "${{ github.workspace }}/progress.txt"; then
+            echo "BUILD_SUCCESS=true" >> $GITHUB_OUTPUT
+          else
+            echo "BUILD_SUCCESS=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
 
           kill $MONITOR_PID || true
 
       - name: Notify Success
-        if: success()
+        if: steps.build_rom.outputs.BUILD_SUCCESS == 'true'
         run: |
           python3 builder/reporter.py \
             --run-id "${{ github.run_id }}" \
