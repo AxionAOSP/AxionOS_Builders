@@ -94,6 +94,29 @@ class RedisPersistence(BasePersistence):
         await self._init_redis()
         await self.r.set(RK_PERSIST_BOT, json.dumps(data))
 
+    async def refresh_bot_data(self, data): pass
+    async def refresh_chat_data(self, chat_id, data): pass
+    async def refresh_user_data(self, user_id, data): pass
+
+    async def drop_chat_data(self, chat_id):
+        await self._init_redis()
+        await self.r.hdel(RK_PERSIST_CHAT, str(chat_id))
+
+    async def drop_user_data(self, user_id):
+        await self._init_redis()
+        await self.r.hdel(RK_PERSIST_USER, str(user_id))
+
+    async def get_conversations(self, name):
+        await self._init_redis()
+        data = await self.r.hget(RK_PERSIST_BOT, f"conv:{name}")
+        return json.loads(data) if data else {}
+
+    async def update_conversation(self, name, key, new_state):
+        await self._init_redis()
+        convs = await self.get_conversations(name)
+        convs[str(key)] = new_state
+        await self.r.hset(RK_PERSIST_BOT, f"conv:{name}", json.dumps(convs))
+
     async def get_callback_data(self): return None
     async def update_callback_data(self, data): pass
     async def get_conversation_data(self): return {}
