@@ -250,54 +250,33 @@ async def remove_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 @restricted_command
 async def add_quota_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # ... (existing code)
+
+@restricted_command
+async def set_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sets the global main output channel for build notifications"""
     user = update.effective_user
     sender_id = user.id
 
     sender_data = await get_user_data(sender_id)
     sender_role = sender_data.get("role") if sender_data else None
-
-    if not (sender_id == OWNER_ID or sender_role == ROLE_OWNER):
-        await update.message.reply_text("⛔ **Access Denied:** Owner only command.")
+    if not (sender_id == OWNER_ID or sender_role in [ROLE_ADMIN, ROLE_OWNER]):
+        await update.message.reply_text("⛔ Admin only.")
         return
 
-    args = context.args
-    if len(args) < 2:
-        await update.message.reply_text("⚠️ Usage: `/addquota <User> <Limit>`", parse_mode="Markdown")
+    if not context.args:
+        await update.message.reply_text("⚠️ Usage: `/setchannel <ChannelID>`\nExample: `/setchannel -100123456789`", parse_mode="Markdown")
         return
 
-    target_input = args[0]
-    try:
-        limit_str = args[1].lower().replace("/d", "").replace("/day", "")
-        new_limit = int(limit_str)
-        if new_limit < 0: raise ValueError
-    except:
-        await update.message.reply_text("⚠️ Limit must be a positive number.")
-        return
-
-    # Resolve User
-    target_id = None
+    target_channel = context.args[0]
     r = await get_redis()
-    all_users = await r.hgetall(RK_USERS)
     
-    for uid, u_raw in all_users.items():
-        if json.loads(u_raw).get("username", "").lower() == target_input.lower().replace("@", ""):
-            target_id = uid
-            break
-    
-    if not target_id and target_input.isdigit():
-        if target_id in all_users: target_id = target_input
-
-    if not target_id:
-        await update.message.reply_text(f"❌ User `{target_input}` not found.")
+    # Verify it's a valid ID format
+    if not (target_channel.startswith("-") and target_channel[1:].isdigit()):
+        await update.message.reply_text("❌ Invalid Channel ID format.")
         return
 
-    def quota_mod(data):
-        data["daily_limit"] = new_limit
-        return True
+    from utils import RK_CONFIG
+    await r.hset(RK_CONFIG, "main_output_channel", target_channel)
+    await update.message.reply_text(f"✅ **Main Output Channel Set**\nID: `<code>{target_channel}</code>`", parse_mode="HTML")
 
-    success = await update_user_data(target_id, quota_mod, commit_msg=f"database: Set {target_input} daily limit to {new_limit}")
-
-    if success:
-        await update.message.reply_text(f"✅ **Limit Set:** `{target_input}` daily limit is now `{new_limit}`.")
-    else:
-        await update.message.reply_text("❌ Update failed.")

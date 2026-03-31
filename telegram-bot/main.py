@@ -29,7 +29,7 @@ from handlers.github import (
 from handlers.admin import (
     add_user_command, remove_user_command, set_role_command, 
     add_quota_command, approve_chat_command, sync_db_command,
-    save_db_command
+    save_db_command, set_channel_command
 )
 from handlers.general import (
     start_command, help_command, list_users_command, guide_command,
@@ -130,6 +130,7 @@ async def main():
 
     app.add_handler(CommandHandler("sync", sync_db_command))
     app.add_handler(CommandHandler("save", save_db_command))
+    app.add_handler(CommandHandler("setchannel", set_channel_command))
     app.add_handler(CommandHandler("approvechat", approve_chat_command))
     app.add_handler(CommandHandler("adduser", add_user_command))
     app.add_handler(CommandHandler("removeuser", remove_user_command))
