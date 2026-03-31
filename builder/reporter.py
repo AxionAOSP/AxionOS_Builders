@@ -457,37 +457,49 @@ def main():
     # --- SUCCESS ---
     print("Handling Build Success...")
     
-    if not os.path.exists(out_dir):
-        print(f"Error: Output directory not found: {out_dir}")
+    # Wait a bit for filesystem to sync and tmux session to fully close
+    time.sleep(15)
+    
+    MAX_RETRIES = 3
+    for attempt in range(MAX_RETRIES):
+        if os.path.exists(out_dir):
+            break
+        print(f"Attempt {attempt+1}: Output directory not found: {out_dir}. Retrying in 10s...")
+        time.sleep(10)
+    else:
+        print(f"Error: Output directory not found after retries: {out_dir}")
         bot.send_message(args.chat_id, f"⚠️ Build Success but Output Dir not found: `{out_dir}`", topic_id=args.topic_builder)
         return
 
     print(f"Searching for ZIPs in: {out_dir}")
-    try:
-        print(f"Files in dir: {os.listdir(out_dir)}")
-    except Exception as e:
-        print(f"Error listing dir: {e}")
-
-    # Find ROM
-    # Try preferred pattern first
-    zip_pattern = os.path.join(out_dir, "AxionOS*.zip")
-    files = glob.glob(zip_pattern)
     
-    # Fallback: Look for any .zip that isn't a known small file
-    if not files:
-        print("Preferred ZIP pattern not found, searching for any ROM zip...")
-        all_zips = glob.glob(os.path.join(out_dir, "*.zip"))
-        # Filter out obvious non-ROM zips if any
-        files = [f for f in all_zips if os.getsize(f) > 500 * 1024 * 1024] # At least 500MB
-    
-    if not files:
-        # Last effort: look one level deeper or for different case
-        files = glob.glob(os.path.join(out_dir, "axion*.zip"))
+    # Retry loop for ZIP searching
+    files = []
+    for attempt in range(MAX_RETRIES):
+        # Try preferred pattern first
+        zip_pattern = os.path.join(out_dir, "AxionOS*.zip")
+        files = glob.glob(zip_pattern)
+        
+        # Fallback: Look for any .zip that isn't a known small file
         if not files:
-            # List files for debugging in bot log
-            existing = ", ".join(os.listdir(out_dir)[:10]) if os.path.exists(out_dir) else "N/A"
-            bot.send_message(args.chat_id, f"⚠️ Build Success but ZIP not found in `{out_dir}`\nFound: `{existing}`", topic_id=args.topic_builder)
-            return
+            print("Preferred ZIP pattern not found, searching for any ROM zip...")
+            all_zips = glob.glob(os.path.join(out_dir, "*.zip"))
+            files = [f for f in all_zips if os.getsize(f) > 500 * 1024 * 1024]
+        
+        if not files:
+            files = glob.glob(os.path.join(out_dir, "axion*.zip"))
+            
+        if files:
+            break
+            
+        print(f"Attempt {attempt+1}: ZIP not found yet. Retrying in 10s...")
+        time.sleep(10)
+
+    if not files:
+        # List files for debugging in bot log
+        existing = ", ".join(os.listdir(out_dir)[:10]) if os.path.exists(out_dir) else "N/A"
+        bot.send_message(args.chat_id, f"⚠️ Build Success but ZIP not found in `{out_dir}`\nFound: `{existing}`", topic_id=args.topic_builder)
+        return
     
     rom_file = max(files, key=os.path.getctime)
     rom_name = os.path.basename(rom_file)
