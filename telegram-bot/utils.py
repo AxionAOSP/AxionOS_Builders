@@ -131,7 +131,15 @@ async def save_db_to_github(commit_message="database: update from bot"):
         "message": commit_message,
         "content": b64_content,
         "branch": GITHUB_BRANCH,
-        "sha": sha
+        "sha": sha,
+        "committer": {
+            "name": "github-actions[bot]",
+            "email": "41898282+github-actions[bot]@users.noreply.github.com"
+        },
+        "author": {
+            "name": "github-actions[bot]",
+            "email": "41898282+github-actions[bot]@users.noreply.github.com"
+        }
     }
     
     async with httpx.AsyncClient() as client:

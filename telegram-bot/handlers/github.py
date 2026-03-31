@@ -20,7 +20,7 @@ from utils import (
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO_NAME = os.environ.get("GITHUB_REPO_NAME")
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "actions")
-WORKFLOW_ID = 251648982
+WORKFLOW_ID = "axion_build.yml"
 
 # === CONSTANTS ===
 BUILD_OPTIONS = {
@@ -46,7 +46,10 @@ async def trigger_workflow(inputs):
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(url, headers=get_github_headers(), json=payload, timeout=20)
-            return resp.status_code == 204
+            if resp.status_code != 204:
+                print(f"[GH ERROR] Trigger failed with status {resp.status_code}: {resp.text}")
+                return False
+            return True
         except Exception as e:
             print(f"[GH ERROR] Trigger failed: {e}")
             return False
@@ -298,7 +301,7 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'DEVICE': dev, 'RELEASETYPE': 'userdebug', 'GMS_VARIANT': 'Core',
         'FULLCLEAN': 'No', 'LOCAL_MANIFEST_URL': url,
         'BUILD_USER': update.effective_user.username or update.effective_user.first_name,
-        'BUILD_USER_ID': str(uid), 'CHAT_ID': str(update.effective_chat.id)
+        'BUILD_USER_ID': str(uid)
     }
     context.user_data['pending_build'] = params
     

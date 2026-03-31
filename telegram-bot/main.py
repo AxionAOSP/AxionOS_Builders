@@ -26,7 +26,8 @@ from handlers.github import (
 )
 from handlers.admin import (
     add_user_command, remove_user_command, set_role_command, 
-    add_quota_command, approve_chat_command, sync_db_command
+    add_quota_command, approve_chat_command, sync_db_command,
+    save_db_command
 )
 from handlers.general import (
     start_command, help_command, list_users_command, guide_command,
@@ -43,6 +44,7 @@ async def set_bot_commands(app):
         BotCommand("health", "Check server health"),
         BotCommand("quota", "Check build limits"),
         BotCommand("cancel", "Cancel a running build"),
+        BotCommand("save", "Save DB to GitHub (Admin)"),
         BotCommand("help", "Show all commands")
     ]
     try:
@@ -94,6 +96,7 @@ async def main():
     app.add_handler(CommandHandler("fullhistory", full_history_command))
 
     app.add_handler(CommandHandler("sync", sync_db_command))
+    app.add_handler(CommandHandler("save", save_db_command))
     app.add_handler(CommandHandler("approvechat", approve_chat_command))
     app.add_handler(CommandHandler("adduser", add_user_command))
     app.add_handler(CommandHandler("removeuser", remove_user_command))

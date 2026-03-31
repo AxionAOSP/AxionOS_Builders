@@ -37,11 +37,32 @@ async def approve_chat_command(update: Update, context: ContextTypes.DEFAULT_TYP
     is_new = await r.sadd(RK_CHATS, chat_id)
 
     if is_new:
-        # Trigger GitHub backup in background
-        asyncio.create_task(save_db_to_github(f"database: Approve chat {chat_title} ({chat_id})"))
-        await update.message.reply_text(f"✅ **Chat Approved**\nTitle: `{chat_title}`\nID: `{chat_id}`\n\nUsers in this group can now use bot commands.")
+        # DO NOT trigger GitHub backup here as per user request
+        await update.message.reply_text(f"✅ **Chat Approved (Local Only)**\nTitle: `{chat_title}`\nID: `{chat_id}`\n\nUsers in this group can now use bot commands. Use `/save` to persist this across bot restarts.")
     else:
         await update.message.reply_text(f"⚠️ Chat `{chat_id}` is already approved.")
+
+@restricted_command
+async def save_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Force a Redis -> GitHub sync"""
+    user = update.effective_user
+    sender_id = user.id
+    
+    sender_data = await get_user_data(sender_id)
+    sender_role = sender_data.get("role") if sender_data else None
+    is_admin = (sender_id == OWNER_ID) or sender_role in [ROLE_ADMIN, ROLE_OWNER]
+
+    if not is_admin:
+        await update.message.reply_text("⛔ Admin only.")
+        return
+    
+    status_msg = await update.message.reply_text("💾 Saving Redis state to GitHub...")
+    success = await save_db_to_github(f"database: Manual save by {user.username or user.id}")
+    
+    if success:
+        await status_msg.edit_text("✅ database.json has been updated on GitHub.")
+    else:
+        await status_msg.edit_text("❌ Save failed. Check logs.")
 
 @restricted_command
 async def sync_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
