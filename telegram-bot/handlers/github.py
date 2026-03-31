@@ -26,8 +26,7 @@ WORKFLOW_ID = "axion_build.yml"
 BUILD_OPTIONS = {
     'RELEASETYPE': ['user', 'userdebug', 'eng'],
     'GMS_VARIANT': ['Core', 'Pico', 'Vanilla'],
-    'FULLCLEAN': ['No', 'Yes'],
-    'OUTPUT_MODE': ['Current Chat', 'Main Channel']
+    'FULLCLEAN': ['No', 'Yes']
 }
 
 # === KEYBOARDS ===
@@ -35,7 +34,7 @@ def get_build_menu_keyboard(params):
     def btn(l, k): return InlineKeyboardButton(f"{l}: {params[k]}", callback_data=f"build_set:{k}")
     return InlineKeyboardMarkup([
         [btn("Type", "RELEASETYPE"), btn("GMS", "GMS_VARIANT")],
-        [btn("Full Clean", "FULLCLEAN"), btn("Output", "OUTPUT_MODE")],
+        [btn("Full Clean", "FULLCLEAN")],
         [InlineKeyboardButton("✅ START", callback_data="build_action:start"), InlineKeyboardButton("❌ CANCEL", callback_data="build_action:cancel")]
     ])
 
@@ -304,8 +303,7 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'BUILD_USER': update.effective_user.username or update.effective_user.first_name,
         'BUILD_USER_ID': str(uid),
         'CHAT_ID': str(update.effective_chat.id),
-        'TOPIC_ID': str(update.effective_message.message_thread_id or ""),
-        'OUTPUT_MODE': 'Current Chat'
+        'TOPIC_ID': str(update.effective_message.message_thread_id or "")
     }
     context.user_data['pending_build'] = params
     
@@ -343,21 +341,16 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
                 await query.answer("Session Expired", show_alert=True)
                 return
             
-            # Resolve Output Channel
-            if p.get("OUTPUT_MODE") == "Main Channel":
-                r = await get_redis()
-                from utils import RK_CONFIG
-                main_chan = await r.hget(RK_CONFIG, "main_output_channel")
-                if main_chan:
-                    p["CHAT_ID"] = main_chan
-                    p["TOPIC_ID"] = "" # Reset topic if moving to channel
+            # Resolve Output Channel (Automatic)
+            r = await get_redis()
+            from utils import RK_CONFIG
+            main_chan = await r.hget(RK_CONFIG, "main_output_channel")
+            if main_chan:
+                p["CHAT_ID"] = main_chan
+                p["TOPIC_ID"] = "" # Reset topic if moving to channel
             
-            # Create a copy and remove bot-only internal state
-            gh_inputs = p.copy()
-            gh_inputs.pop("OUTPUT_MODE", None)
-
             await query.edit_message_text("⏳ <b>Dispatching Workflow...</b>", parse_mode=ParseMode.HTML)
-            if await trigger_workflow(gh_inputs):
+            if await trigger_workflow(p):
                 await query.edit_message_text(f"✅ <b>Build Started!</b>\nDevice: <code>{p['DEVICE']}</code>\nCheck /status shortly.", parse_mode=ParseMode.HTML)
                 # Update Redis Locally (No commit to GitHub to avoid 2 commits)
                 def inc_mod(d):
