@@ -342,12 +342,12 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text("⏳ <b>Dispatching Workflow...</b>", parse_mode=ParseMode.HTML)
             if await trigger_workflow(p):
                 await query.edit_message_text(f"✅ <b>Build Started!</b>\nDevice: <code>{p['DEVICE']}</code>\nCheck /status shortly.", parse_mode=ParseMode.HTML)
-                # Increment count
+                # Update Redis Locally (No commit to GitHub to avoid 2 commits)
                 def inc_mod(d):
                     d["daily_count"] = d.get("daily_count", 0) + 1
                     d["last_build_date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
                     return True
-                await update_user_data(query.from_user.id, inc_mod, commit_msg=f"build: {p['DEVICE']} for {p['BUILD_USER']}")
+                await update_user_data(query.from_user.id, inc_mod, commit_msg=None)
             else:
                 await query.edit_message_text("❌ <b>GitHub API Error.</b>", parse_mode=ParseMode.HTML)
 
