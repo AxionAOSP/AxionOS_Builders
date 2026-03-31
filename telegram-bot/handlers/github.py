@@ -352,8 +352,12 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
                     p["CHAT_ID"] = main_chan
                     p["TOPIC_ID"] = "" # Reset topic if moving to channel
             
+            # Create a copy and remove bot-only internal state
+            gh_inputs = p.copy()
+            gh_inputs.pop("OUTPUT_MODE", None)
+
             await query.edit_message_text("⏳ <b>Dispatching Workflow...</b>", parse_mode=ParseMode.HTML)
-            if await trigger_workflow(p):
+            if await trigger_workflow(gh_inputs):
                 await query.edit_message_text(f"✅ <b>Build Started!</b>\nDevice: <code>{p['DEVICE']}</code>\nCheck /status shortly.", parse_mode=ParseMode.HTML)
                 # Update Redis Locally (No commit to GitHub to avoid 2 commits)
                 def inc_mod(d):
