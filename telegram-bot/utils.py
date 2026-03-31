@@ -14,8 +14,24 @@ base_dir = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(base_dir, 'private.env'))
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+CHANNEL_ID = os.environ.get("CHANNEL_ID")
 REDIS_URL = os.environ.get("REDIS_URL")
+STICKER_ID = os.environ.get("STICKER_ID")
+
+TEST_GROUP_ID = int(os.environ.get("TEST_GROUP_ID", "0"))
+TEST_CHANNEL_ID = os.environ.get("TEST_CHANNEL_ID")
 OWNER_ID = int(os.environ.get("OWNER_ID", "0"))
+
+DONATE_URL = "https://t.me/donate_zero/6"
+AXN_SUPPORT = "https://t.me/AxionOS"
+SOURCE_CHANGELOGS_URL = "https://axionos.com/changelog/"
+
+def parse_list(env_str):
+    if not env_str: return []
+    return [int(x.strip()) for x in env_str.split(",") if x.strip().isdigit()]
+
+ADMIN_USER_IDS = parse_list(os.environ.get("ADMIN_USER_IDS", ""))
+TEST_GROUP_ID = int(os.environ.get("TEST_GROUP_ID", "0"))
 
 # GitHub Config
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
@@ -134,10 +150,15 @@ async def save_db_to_github(commit_message="database: update from bot"):
 
 async def is_chat_allowed(chat_id):
     """Check if chat is approved in O(1) time using Redis Set"""
-    # Quick check for ENV IDs
-    if str(chat_id) in os.environ.get("ALLOWED_CHAT_IDS", "").split(","):
+    # 1. Check ENV/Static IDs
+    if TEST_GROUP_ID != 0 and chat_id == TEST_GROUP_ID:
         return True
     
+    env_allowed = parse_list(os.environ.get("ALLOWED_CHAT_IDS", ""))
+    if chat_id in env_allowed:
+        return True
+    
+    # 2. Check Redis Set
     r = await get_redis()
     return await r.sismember(RK_CHATS, str(chat_id))
 

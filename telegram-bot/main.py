@@ -11,6 +11,7 @@ if os.path.isdir(custom_lib_path):
 
 # === IMPORTS ===
 import redis.asyncio as redis
+from telegram import BotCommand, BotCommandScopeDefault, BotCommandScopeAllGroupChats
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler
 from telegram.request import HTTPXRequest
 from dotenv import load_dotenv
@@ -31,6 +32,27 @@ from handlers.general import (
     start_command, help_command, list_users_command, guide_command,
     health_command, history_command, full_history_command
 )
+
+async def set_bot_commands(app):
+    """Sets the bot commands for the Telegram menu with global scope."""
+    commands = [
+        BotCommand("build", "Start a new ROM build"),
+        BotCommand("status", "Show real-time progress"),
+        BotCommand("queue", "View GitHub Actions queue"),
+        BotCommand("history", "View build history"),
+        BotCommand("health", "Check server health"),
+        BotCommand("quota", "Check build limits"),
+        BotCommand("cancel", "Cancel a running build"),
+        BotCommand("help", "Show all commands")
+    ]
+    try:
+        # Set for Private Chats (Default)
+        await app.bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+        # Set for all Groups
+        await app.bot.set_my_commands(commands, scope=BotCommandScopeAllGroupChats())
+        print("[INIT] Bot commands registered for all scopes.")
+    except Exception as e:
+        print(f"[ERROR] Failed to set commands: {e}")
 
 async def main():
     if not BOT_TOKEN or not REDIS_URL:
@@ -89,6 +111,7 @@ async def main():
     # 4. Run Loop
     print("🚀 Bot is Running (Fully Optimized Mode)")
     await app.initialize()
+    await set_bot_commands(app)
     await app.start()
     await app.updater.start_polling(drop_pending_updates=True)
 

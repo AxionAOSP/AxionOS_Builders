@@ -9,20 +9,24 @@ from utils import (
     fetch_db_from_github, save_db_to_github, RK_CHATS, RK_USERS
 )
 
-@restricted_command
+# NO restricted_command here because we need to run it in UNAPPROVED chats to approve them!
 async def approve_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
     sender_id = user.id
 
     # 1. Check Permissions (Admin or Owner)
+    # We check ADMIN_USER_IDS from ENV first as it's the safest way for the owner
+    from utils import ADMIN_USER_IDS
     sender_data = await get_user_data(sender_id)
     sender_role = sender_data.get("role") if sender_data else None
     
-    is_admin = (sender_id == OWNER_ID) or sender_role in [ROLE_ADMIN, ROLE_OWNER]
+    is_admin = (sender_id == OWNER_ID) or (sender_id in ADMIN_USER_IDS) or sender_role in [ROLE_ADMIN, ROLE_OWNER]
     
     if not is_admin:
-        await update.message.reply_text("⛔ **Access Denied:** Admin only command.")
+        # Silently ignore or reply if it's a private chat
+        if chat.type == "private":
+            await update.message.reply_text("⛔ **Access Denied.**")
         return
 
     chat_id = str(chat.id)
