@@ -28,8 +28,11 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         msg = "<b>📜 RECENT BUILD HISTORY</b>\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
         
-        # Show last 5
-        for build in data[-5:]:
+        # Sort by timestamp descending to ensure newest are first
+        data.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+        
+        # Show top 5
+        for build in data[:5]:
             dt = datetime.fromtimestamp(build['timestamp']).strftime("%d/%m %H:%M")
             status_icon = "✅" if build['status'] == "SUCCESS" else "❌" if build['status'] == "FAILURE" else "🛑"
             

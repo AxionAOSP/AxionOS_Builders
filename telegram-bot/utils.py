@@ -200,11 +200,40 @@ async def get_quota_status(user_id):
 # === FORMATTING UTILS ===
 
 def convert_to_raw_url(url):
+    """
+    Converts standard Git web UI URLs into raw content URLs.
+    Supports GitHub, GitLab, and Bitbucket.
+    """
     if not url: return ""
-    if "github.com" in url and "/blob/" in url:
-        return url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
-    if "/blob/" in url:
-        return url.replace("/blob/", "/raw/")
+    url = url.strip()
+    
+    # 1. GitHub
+    if "github.com" in url:
+        if "raw.githubusercontent.com" in url:
+            return url # Already raw
+        if "/blob/" in url:
+            return url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+        if "/raw/" in url:
+            return url.replace("github.com", "raw.githubusercontent.com").replace("/raw/", "/")
+        
+    # 2. GitLab
+    if "gitlab.com" in url:
+        if "/raw/" in url:
+            return url
+        if "/blob/" in url:
+            return url.replace("/blob/", "/raw/")
+
+    # 3. Bitbucket
+    if "bitbucket.org" in url:
+        if "/raw/" in url:
+            return url
+        if "/src/" in url:
+            return url.replace("/src/", "/raw/")
+
+    # 4. GitHub Gist
+    if "gist.github.com" in url and "/raw" not in url:
+        return url.rstrip("/") + "/raw"
+
     return url
 
 def bytes_to_gb(size_bytes):
