@@ -11,29 +11,33 @@ COMMAND="$2"
 LOG_FILE="$3"
 PROGRESS_FILE="$4"
 
-# Define Marker files early for trap safety
-EXIT_CODE_FILE="/tmp/${SESSION_NAME}_exit"
-DONE_FILE="/tmp/${SESSION_NAME}_done"
+# Create a unique ID for this specific execution to avoid marker clashes
+EXEC_ID=$(date +%s%N | cut -b1-13)
+EXIT_CODE_FILE="/tmp/${SESSION_NAME}_${EXEC_ID}_exit"
+DONE_FILE="/tmp/${SESSION_NAME}_${EXEC_ID}_done"
 
 # --- SIGNAL TRAP (AUTO KILL) ---
-# If this script (the runner) is killed by GitHub Actions (Cancel),
-# we must ensure the background tmux session is also killed.
 cleanup_trap() {
-    echo "[TMUX] Signal received (Cancelled). Killing session: $SESSION_NAME"
-    tmux kill-session -t "$SESSION_NAME" 2>/dev/null
+    echo "[TMUX] Signal received (Cancelled). Marker: $EXEC_ID"
+    # We DON'T kill the session anymore to allow user to stay attached, 
+    # but we send a Ctrl+C to stop the current command.
+    tmux send-keys -t "$SESSION_NAME" C-c
     rm -f "$EXIT_CODE_FILE" "$DONE_FILE"
     exit 130
 }
 trap 'cleanup_trap' SIGINT SIGTERM
 
-# Ensure no previous session exists
-tmux kill-session -t "$SESSION_NAME" 2>/dev/null
+# Ensure session exists
+if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    echo "[TMUX] Creating new session: $SESSION_NAME"
+    tmux new-session -d -s "$SESSION_NAME"
+else
+    echo "[TMUX] Reusing existing session: $SESSION_NAME"
+    # Optional: Clear the screen for a fresh look
+    tmux send-keys -t "$SESSION_NAME" "clear" C-m
+fi
 
-# Create new detached session
-echo "[TMUX] Creating session: $SESSION_NAME"
-tmux new-session -d -s "$SESSION_NAME"
-
-# Clean markers
+# Clean markers for this execution
 rm -f "$EXIT_CODE_FILE" "$DONE_FILE"
 
 # Prepare the command with environment variables:
@@ -43,7 +47,7 @@ rm -f "$EXIT_CODE_FILE" "$DONE_FILE"
 # 4. Touch done file
 ENV_VARS=(
     "AOSP_MANIFEST_URL" "AOSP_MANIFEST_BRANCH" "DEVICE" "RELEASETYPE" 
-    "INSTALLCLEAN" "FULLCLEAN" "GMS_VARIANT" "FSGEN" 
+    "FULLCLEAN" "GMS_VARIANT" 
     "WORKSPACE" "GITHUB_REPO_NAME" "GITHUB_TOKEN" "AOSP_SOURCE_DIR"
 )
 
@@ -102,8 +106,7 @@ else
 fi
 
 # Cleanup
-echo "[TMUX] Process finished with exit code: $EXIT_CODE. Killing session."
-tmux kill-session -t "$SESSION_NAME"
+echo "[TMUX] Process finished with exit code: $EXIT_CODE. Marker: $EXEC_ID"
 rm -f "$EXIT_CODE_FILE" "$DONE_FILE"
 
 # Return the exit code to the caller (GitHub Actions)

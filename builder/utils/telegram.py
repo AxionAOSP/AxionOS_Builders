@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -21,7 +22,7 @@ class TelegramBot:
         self.session.mount("http://", adapter)
         self.timeout = 120  # Seconds
 
-    def send_message(self, chat_id, text, topic_id=None, parse_mode="Markdown"):
+    def send_message(self, chat_id, text, topic_id=None, parse_mode="Markdown", reply_markup=None):
         url = f"{self.api_url}/sendMessage"
         data = {
             "chat_id": chat_id,
@@ -31,6 +32,8 @@ class TelegramBot:
         }
         if topic_id:
             data["message_thread_id"] = topic_id
+        if reply_markup:
+            data["reply_markup"] = json.dumps(reply_markup)
             
         try:
             response = self.session.post(url, data=data, timeout=self.timeout)
@@ -75,7 +78,7 @@ class TelegramBot:
         except Exception as e:
             print(f"[Telegram Error] Failed to delete message: {e}")
 
-    def edit_message(self, chat_id, message_id, text, parse_mode="Markdown"):
+    def edit_message(self, chat_id, message_id, text, parse_mode="Markdown", reply_markup=None):
         url = f"{self.api_url}/editMessageText"
         data = {
             "chat_id": chat_id,
@@ -84,6 +87,8 @@ class TelegramBot:
             "parse_mode": parse_mode,
             "disable_web_page_preview": True
         }
+        if reply_markup:
+            data["reply_markup"] = json.dumps(reply_markup)
         try:
             response = self.session.post(url, data=data, timeout=self.timeout)
             if not response.ok:

@@ -3,13 +3,11 @@
 # Arguments:
 # 1: DEVICE
 # 2: RELEASETYPE (Unused now as axion script handles it or uses defaults)
-# 3: INSTALLCLEAN
-# 4: FULLCLEAN
+# 3: FULLCLEAN
 
 DEVICE="$1"
 RELEASETYPE="$2"
-INSTALLCLEAN="$3"
-FULLCLEAN="$4"
+FULLCLEAN="$3"
 
 # Mapping GMS_VARIANT to axion command arguments
 # Core    -> "gms core"
@@ -47,12 +45,6 @@ fi
 # Usage: axion <device_codename> [variant]
 echo "Running axion command: axion $DEVICE $AXION_VARIANT"
 axion "$DEVICE" $AXION_VARIANT || { echo "Axion configuration failed"; exit 1; }
-
-# Handle Install Clean step (cleans only the product's out directory)
-if [ "$INSTALLCLEAN" == "Yes" ]; then
-    echo "INSTALLCLEAN is Yes, running 'make installclean'..."
-    make installclean || { echo "Install Clean failed"; exit 1; }
-fi
 
 # Start building
 # Usage: ax -br -j<count>

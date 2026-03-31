@@ -17,14 +17,6 @@ on:
           - user
           - userdebug
           - eng
-      INSTALLCLEAN:
-        description: 'Run make installclean?'
-        required: true
-        default: 'Yes'
-        type: choice
-        options:
-          - 'Yes'
-          - 'No'
       FULLCLEAN:
         description: 'Run make clean (Wipe out)?'
         required: true
@@ -33,14 +25,6 @@ on:
         options:
           - 'No'
           - 'Yes'
-      FSGEN:
-        description: 'FSGen Status'
-        required: true
-        default: 'Enable'
-        type: choice
-        options:
-          - 'Enable'
-          - 'Disable'
       GMS_VARIANT:
         description: 'GMS Variant'
         required: true
@@ -66,36 +50,27 @@ on:
 jobs:
   build:
     runs-on: self-hosted
-    # Set timeout to avoid stuck builds (e.g. 6 hours)
     timeout-minutes: 360
-    
+
     env:
-      # Configurations
-      # AOSP_SOURCE_DIR and WORKSPACE are set in the "Setup Environment" step
-      
-      # Mapping Inputs to Env for scripts
+
       DEVICE: ${{ inputs.DEVICE }}
       RELEASETYPE: ${{ inputs.RELEASETYPE }}
-      INSTALLCLEAN: ${{ inputs.INSTALLCLEAN }}
       FULLCLEAN: ${{ inputs.FULLCLEAN }}
-      FSGEN: ${{ inputs.FSGEN }}
       GMS_VARIANT: ${{ inputs.GMS_VARIANT }}
       LOCAL_MANIFEST: ${{ inputs.LOCAL_MANIFEST_URL }}
       BUILD_USER: ${{ inputs.BUILD_USER }}
       BUILD_USER_ID: ${{ inputs.BUILD_USER_ID }}
-      
-      # Secrets (Assumes these are set in Repo Settings > Secrets)
+
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       TOPIC_BUILDER: ${{ secrets.TOPIC_BUILDER }}
       TOPIC_ERROR_LOGS: ${{ secrets.TOPIC_ERROR_LOGS }}
       TOPIC_RELEASE_JSON: ${{ secrets.TOPIC_RELEASE_JSON }}
-      
-      # Constant
+
       AOSP_MANIFEST_URL: 'https://github.com/AxionAOSP/android.git'
       AOSP_MANIFEST_BRANCH: 'lineage-23.2'
-      
-      # Auth for Scripts (Using Custom PAT for Private Repos & Push Access)
+
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       GITHUB_REPO_NAME: ${{ github.repository }}
 
@@ -116,35 +91,26 @@ jobs:
         run: |
           echo "AOSP_SOURCE_DIR=$HOME/android/source" >> $GITHUB_ENV
           echo "WORKSPACE=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-          
+
       - name: Prepare Scripts
         run: |
-          # Kill potential stale sessions from previous runs
-          tmux kill-session -t sync_session 2>/dev/null || true
-          tmux kill-session -t build_session 2>/dev/null || true
-          tmux kill-session -t sign_session 2>/dev/null || true
-          
           chmod +x builder/*.sh
           chmod +x builder/*.py
-          
-          # Clean previous logs in workspace and source dir
+
           rm -f sign.log build.log sync.log progress.txt .quota_exceeded
           rm -f $AOSP_SOURCE_DIR/out/error.log
-          
-          # Ensure Source Dir exists
+
           mkdir -p $AOSP_SOURCE_DIR
 
       - name: Notify Start
         run: |
-          # Send start notification
           python3 builder/reporter.py \
+            --run-id "${{ github.run_id }}" \
             --status started \
             --device "$DEVICE" \
             --build-type "$RELEASETYPE" \
             --release-status "No" \
             --gms "$GMS_VARIANT" \
-            --fsgen "$FSGEN" \
-            --install-clean "$INSTALLCLEAN" \
             --full-clean "$FULLCLEAN" \
             --user "$BUILD_USER" \
             --chat-id "$TELEGRAM_CHAT_ID" \
@@ -159,21 +125,18 @@ jobs:
         run: |
           if [ "$BUILD_USER_ID" != "0" ] && [ "$BUILD_USER_ID" != "" ]; then
             echo "Checking Quota..."
-            # Run manager
             python3 builder/quota_manager.py "$BUILD_USER_ID" "$BUILD_USER" "$FULLCLEAN"
           fi
 
       - name: Sync Source
         run: |
-          # Notify Syncing
           python3 builder/reporter.py \
+            --run-id "${{ github.run_id }}" \
             --status syncing \
             --device "$DEVICE" \
             --build-type "$RELEASETYPE" \
             --release-status "No" \
             --gms "$GMS_VARIANT" \
-            --fsgen "$FSGEN" \
-            --install-clean "$INSTALLCLEAN" \
             --full-clean "$FULLCLEAN" \
             --user "$BUILD_USER" \
             --chat-id "$TELEGRAM_CHAT_ID" \
@@ -186,34 +149,24 @@ jobs:
 
           git config --global user.name "Saikrishna1504"
           git config --global user.email "saikrishna26918@gmail.com"
-          
-          # Use tmux wrapper for Sync
-          # We construct the command to run INSIDE tmux: cd to source dir -> run sync script
+
           SYNC_CMD="cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/sync.sh \"$LOCAL_MANIFEST\""
-          
+
           ${{ github.workspace }}/builder/tmux_runner.sh \
-            "sync_session" \
+            "axion_build" \
             "$SYNC_CMD" \
             "${{ github.workspace }}/sync.log"
-
-      - name: Modify FSGen
-        if: inputs.FSGEN == 'Disable'
-        run: |
-          cd $AOSP_SOURCE_DIR
-          ${{ github.workspace }}/builder/fsgen_control.sh modify
 
       - name: Build ROM
         id: build_rom
         run: |
-          # Start Monitoring in Background (Reporter reads progress.txt generated by tmux_runner)
           python3 builder/reporter.py \
+            --run-id "${{ github.run_id }}" \
             --status monitoring \
             --device "$DEVICE" \
             --build-type "$RELEASETYPE" \
             --release-status "No" \
             --gms "$GMS_VARIANT" \
-            --fsgen "$FSGEN" \
-            --install-clean "$INSTALLCLEAN" \
             --full-clean "$FULLCLEAN" \
             --user "$BUILD_USER" \
             --chat-id "$TELEGRAM_CHAT_ID" \
@@ -224,77 +177,27 @@ jobs:
             --build-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --source-dir "$AOSP_SOURCE_DIR" &
           MONITOR_PID=$!
-            
-          # Construct Build Command for TMUX
-          BUILD_CMD="cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/build.sh \"$DEVICE\" \"$RELEASETYPE\" \"$INSTALLCLEAN\" \"$FULLCLEAN\""
-          
-          # Run via TMUX Wrapper
+
+          BUILD_CMD="cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/build.sh \"$DEVICE\" \"$RELEASETYPE\" \"$FULLCLEAN\""
+
           ${{ github.workspace }}/builder/tmux_runner.sh \
-            "build_session" \
+            "axion_build" \
             "$BUILD_CMD" \
             "${{ github.workspace }}/build.log" \
             "${{ github.workspace }}/progress.txt"
-          
-          # Kill Monitor after build finishes
+
           kill $MONITOR_PID || true
-
-#      - name: Sign & Package ROM
-#        id: sign_rom
-#        if: success()
-#        run: |
-          # Start Monitoring in Background (Reporter reads progress.txt)
-#          python3 builder/reporter.py \
-#            --status monitoring \
-#            --device "$DEVICE" \
-#            --build-type "$RELEASETYPE" \
-#            --release-status "No" \
-#            --gms "$GMS_VARIANT" \
-#            --fsgen "$FSGEN" \
-#            --install-clean "$INSTALLCLEAN" \
-#            --full-clean "$FULLCLEAN" \
-#            --user "$BUILD_USER" \
-#            --chat-id "$TELEGRAM_CHAT_ID" \
-#            --topic-builder "$TOPIC_BUILDER" \
-#            --topic-error-logs "$TOPIC_ERROR_LOGS" \
-#            --topic-release-json "$TOPIC_RELEASE_JSON" \
-#            --token "$TELEGRAM_TOKEN" \
-#            --build-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-#            --source-dir "$AOSP_SOURCE_DIR" &
-#          MONITOR_PID=$!
-            
-          # Construct Sign Command for TMUX
-          # Explicitly set WORKSPACE so sign.sh writes progress.txt to the correct location (GitHub Workspace Root)
-#          SIGN_CMD="cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/sign.sh \"$DEVICE\" \"$RELEASETYPE\" \"${{ github.workspace }}/progress.txt\""
-          
-          # Run via TMUX Wrapper
-#          ${{ github.workspace }}/builder/tmux_runner.sh \
-#            "sign_session" \
-#            "$SIGN_CMD" \
-#            "${{ github.workspace }}/sign.log" \
-#            "${{ github.workspace }}/progress.txt"
-          
-          # Kill Monitor after signing finishes
-#          kill $MONITOR_PID || true
-
-      - name: Restore Changes (Post-Build)
-        if: always()
-        run: |
-          # Restore FSGen
-          if [ "$FSGEN" == "Disable" ]; then
-             cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/fsgen_control.sh restore
-          fi
 
       - name: Notify Success
         if: success()
         run: |
           python3 builder/reporter.py \
+            --run-id "${{ github.run_id }}" \
             --status success \
             --device "$DEVICE" \
             --build-type "$RELEASETYPE" \
             --release-status "No" \
             --gms "$GMS_VARIANT" \
-            --fsgen "$FSGEN" \
-            --install-clean "$INSTALLCLEAN" \
             --full-clean "$FULLCLEAN" \
             --user "$BUILD_USER" \
             --chat-id "$TELEGRAM_CHAT_ID" \
@@ -312,13 +215,12 @@ jobs:
             echo "Quota exceeded. Skipping generic report."
           else
             python3 builder/reporter.py \
+              --run-id "${{ github.run_id }}" \
               --status failure \
               --device "$DEVICE" \
               --build-type "$RELEASETYPE" \
               --release-status "No" \
               --gms "$GMS_VARIANT" \
-              --fsgen "$FSGEN" \
-              --install-clean "$INSTALLCLEAN" \
               --full-clean "$FULLCLEAN" \
               --user "$BUILD_USER" \
               --chat-id "$TELEGRAM_CHAT_ID" \
@@ -334,22 +236,18 @@ jobs:
         if: cancelled()
         run: |
           echo "Workflow cancelled. Ensuring processes are dead..."
-          tmux kill-session -t sync_session 2>/dev/null || true
-          tmux kill-session -t build_session 2>/dev/null || true
-          tmux kill-session -t sign_session 2>/dev/null || true
-          # Kill any lingering monitor
+          tmux send-keys -t axion_build C-c 2>/dev/null || true
           pkill -f "reporter.py --status monitoring" || true
 
       - name: Notify Cancelled
         run: |
             python3 builder/reporter.py \
+              --run-id "${{ github.run_id }}" \
               --status aborted \
               --device "$DEVICE" \
               --build-type "$RELEASETYPE" \
               --release-status "No" \
               --gms "$GMS_VARIANT" \
-              --fsgen "$FSGEN" \
-              --install-clean "$INSTALLCLEAN" \
               --full-clean "$FULLCLEAN" \
               --user "$BUILD_USER" \
               --chat-id "$TELEGRAM_CHAT_ID" \
