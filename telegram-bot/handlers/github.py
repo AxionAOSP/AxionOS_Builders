@@ -272,27 +272,52 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Quota Exceeded.")
         return
 
-    if len(context.args) < 2:
-        await update.message.reply_text("⚠️ Usage: `/build <device> <manifest_url>`")
+    if not context.args:
+        await update.message.reply_text("⚠️ Usage: `/build <device> [manifest_url]`\n\nExample:\n- `/build begonia` (Uses default manifest repo)\n- `/build begonia https://link.to/custom.xml` (Uses custom manifest)", parse_mode="Markdown")
         return
 
-    dev, url = context.args[0], convert_to_raw_url(context.args[1])
+    dev = context.args[0].lower()
     
-    status_msg = await update.message.reply_text("🔎 Validating Manifest...")
+    # Strategy: 1. Use provided URL, 2. Fallback to default AxionAOSP manifest repo
+    if len(context.args) >= 2:
+        url = convert_to_raw_url(context.args[1])
+        custom_manifest = True
+    else:
+        # Default: https://github.com/AxionAOSP/device_manifests/raw/main/{device}.xml
+        url = f"https://github.com/AxionAOSP/device_manifests/raw/main/{dev}.xml"
+        custom_manifest = False
+    
+    status_msg = await update.message.reply_text(f"🔎 Validating Manifest for `{dev}`...")
     
     async with httpx.AsyncClient() as client:
         try:
-            resp = await client.get(url, timeout=10)
+            resp = await client.get(url, timeout=10, follow_redirects=True)
             if resp.status_code != 200:
-                await status_msg.edit_text(f"❌ URL Error: {resp.status_code}")
+                if not custom_manifest:
+                    err_msg = (
+                        f"❌ **Manifest Not Found**\n\n"
+                        f"Device `{dev}` does not have a manifest in the default repository:\n"
+                        f"🔗 [View Repository](https://github.com/AxionAOSP/device_manifests)\n\n"
+                        f"Please use: `/build {dev} <custom_url>`"
+                    )
+                else:
+                    err_msg = f"❌ **URL Error:** Received status `{resp.status_code}` from the provided link."
+                
+                await status_msg.edit_text(err_msg, parse_mode="Markdown", disable_web_page_preview=True)
                 return
             
-            root = ET.fromstring(resp.content)
-            if root.tag != "manifest":
-                await status_msg.edit_text("❌ Invalid Manifest XML.")
+            # Basic XML Validation
+            try:
+                root = ET.fromstring(resp.content)
+                if root.tag != "manifest":
+                    await status_msg.edit_text("❌ **Invalid Manifest:** The file exists but is not a valid AOSP manifest XML.", parse_mode="Markdown")
+                    return
+            except ET.ParseError:
+                await status_msg.edit_text("❌ **Parse Error:** The manifest file contains invalid XML syntax.", parse_mode="Markdown")
                 return
+
         except Exception as e:
-            await status_msg.edit_text(f"❌ Validation Failed: {e}")
+            await status_msg.edit_text(f"❌ **Validation Failed:** `{str(e)}`", parse_mode="Markdown")
             return
 
     await status_msg.delete()
@@ -313,6 +338,7 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>📱 Device</b>   : <code>{dev}</code>\n"
         f"<b>👤 Trigger</b>  : @{html.escape(params['BUILD_USER'])} (<code>{lim_str}</code>)\n"
+        f"<b>📄 Source</b>   : {'Custom URL' if custom_manifest else 'Default Repo'}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"<i>Adjust configuration:</i>"
     )

@@ -147,7 +147,7 @@ async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "└ **Note:** Build status is live in Telegram.\n\n"
         "📄 **Local Manifest**\n"
         "├ Use for extra repos (Kernel/Vendor)\n"
-        "└ [Reference XML Template](https://raw.githubusercontent.com/Arata-Labs/local_manifest/refs/heads/axn-16/local_manifests.xml)"
+        "└ [Reference XML Template](https://github.com/AxionAOSP/device_manifests/blob/main/begonia.xml)"
     )
     await update.message.reply_text(text, parse_mode="Markdown", disable_web_page_preview=True)
 
@@ -174,34 +174,38 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "🤖 **AxionOS Bot Help**\n\n"
         "**👤 User Commands:**\n"
-        "`/guide` - View detailed build options & guide.\n"
-        "`/build <device> <manifest_url>` - Start a new build.\n"
+        "`/build <device> [url]` - Start build (Auto-finds manifest).\n"
         "`/status [device]` - Show real-time ROM build progress.\n"
         "`/queue` - View GitHub Actions workflow queue.\n"
         "`/history` - Show last 5 build attempts.\n"
         "`/health` - Check build server health.\n"
-        "`/cancel <RunID>` - Cancel a running build.\n"
         "`/quota` - Check your daily build quota.\n"
-        "`/listuser` - List all registered users.\n\n"
+        "`/listuser` - List all registered maintainers.\n"
+        "`/guide` - View detailed build options & guide.\n\n"
     )
 
     if is_admin:
         help_text += (
             "**🛡️ Admin Commands:**\n"
-            "`/approvechat` - Approve this group for bot usage.\n"
-            "`/adduser <Username> [role]` - Add/Update a user.\n"
-            "`/removeuser <ID>` - Remove a user from DB.\n"
-            "`/setrole <Role> <User> [Limit]` - Change permissions.\n"
-            "_(Admins and Owner have unlimited quota)_\n\n"
+            "`/approvechat` - Authorize this group for bot usage.\n"
+            "`/adduser <User> [role]` - Add/Update a maintainer.\n"
+            "`/removeuser <ID>` - Remove a user from database.\n"
+            "`/setrole <Role> <User> [Limit]` - Update permissions.\n"
+            "`/listchats` - View all authorized groups & channel.\n"
+            "`/setchannel <ID>` - Set main output channel.\n"
+            "`/removechannel` - Disable output redirection.\n"
+            "`/save` - Force sync Redis to GitHub DB.\n"
+            "`/cancel <RunID>` - Cancel a running workflow.\n\n"
         )
     
     if is_owner:
         help_text += (
             "**👑 Owner Commands:**\n"
-            "`/sync` - Force GitHub -> Redis sync.\n"
+            "`/announce <msg>` - Broadcast to all groups.\n"
+            "`/sync` - Force GitHub -> Redis cache sync.\n"
             "`/addquota <User> <Limit>` - Set custom daily limit.\n"
         )
     elif not is_admin:
-        help_text += "_Request admin access for more features._"
+        help_text += "💡 _Request admin access for more features._"
 
     await update.message.reply_text(help_text, parse_mode="Markdown")

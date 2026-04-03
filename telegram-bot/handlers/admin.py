@@ -1,5 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes
+from telegram.constants import ParseMode
 from datetime import datetime, timezone
 import asyncio
 import json
@@ -118,6 +119,78 @@ async def resolve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return target_input, target_input
         
     return None, None
+
+@restricted_command
+async def announce_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Broadcaster: Sends a message to all allowed group chats (Owner Only)"""
+    user = update.effective_user
+    sender_id = user.id
+
+    if sender_id != OWNER_ID:
+        await update.message.reply_text("⛔ **Access Denied:** Owner only command.")
+        return
+
+    # 1. Get the message to broadcast
+    broadcast_text = None
+    reply_to = None
+
+    if update.message.reply_to_message:
+        broadcast_text = update.message.reply_to_message.text_html or update.message.reply_to_message.text
+        reply_to = update.message.reply_to_message
+    elif context.args:
+        broadcast_text = " ".join(context.args)
+    else:
+        await update.message.reply_text("⚠️ **Usage:**\n- `/announce <Your Message>`\n- Reply to a message with `/announce`", parse_mode="Markdown")
+        return
+
+    # 2. Get all allowed chats from Redis
+    r = await get_redis()
+    chats = await r.smembers(RK_CHATS)
+    
+    if not chats:
+        await update.message.reply_text("❌ No approved chats found in database.")
+        return
+
+    status_msg = await update.message.reply_text(f"📢 **Broadcasting to {len(chats)} chats...**", parse_mode="Markdown")
+    
+    success_count = 0
+    fail_count = 0
+
+    header = "📢 **OFFICIAL ANNOUNCEMENT**\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    full_message = f"{header}{broadcast_text}"
+
+    # 3. Loop and Send
+    for chat_id in chats:
+        try:
+            # If it's a reply with media, we should ideally copy the message, 
+            # but for simplicity, we'll start with text.
+            if reply_to and (reply_to.photo or reply_to.document or reply_to.video):
+                await context.bot.copy_message(
+                    chat_id=chat_id,
+                    from_chat_id=update.effective_chat.id,
+                    message_id=reply_to.message_id,
+                    caption=f"{header}{reply_to.caption or ''}",
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=full_message,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=False
+                )
+            success_count += 1
+            await asyncio.sleep(0.1) # Prevent flood
+        except Exception as e:
+            print(f"[ANN ERROR] Failed for {chat_id}: {e}")
+            fail_count += 1
+
+    await status_msg.edit_text(
+        f"✅ **Broadcast Complete**\n"
+        f"├ Success: `{success_count}`\n"
+        f"└ Failed: `{fail_count}`",
+        parse_mode="Markdown"
+    )
 
 @restricted_command
 async def set_role_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -303,6 +376,48 @@ async def add_quota_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ **Limit Set:** `{target_name}` daily limit is now `{new_limit}`.")
     else:
         await update.message.reply_text("❌ Update failed.")
+
+@restricted_command
+async def list_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Shows all approved group IDs and the current main output channel (Admin only)"""
+    user = update.effective_user
+    sender_id = user.id
+
+    sender_data = await get_user_data(sender_id)
+    sender_role = sender_data.get("role") if sender_data else None
+    is_admin = (sender_id == OWNER_ID) or sender_role in [ROLE_ADMIN, ROLE_OWNER]
+
+    if not is_admin:
+        await update.message.reply_text("⛔ **Access Denied:** Admin only command.")
+        return
+
+    r = await get_redis()
+    from utils import RK_CONFIG
+    
+    # 1. Get Main Channel
+    main_chan = await r.hget(RK_CONFIG, "main_output_channel")
+    
+    # 2. Get Approved Groups
+    groups = await r.smembers(RK_CHATS)
+    
+    msg = "<b>📡 SYSTEM NETWORK CONFIG</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    msg += "<b>📢 Main Output Channel:</b>\n"
+    if main_chan:
+        msg += f"└ <code>{main_chan}</code> ✅\n\n"
+    else:
+        msg += "└ <i>None (Redirected to triggering group)</i>\n\n"
+        
+    msg += f"<b>👥 Approved Groups ({len(groups)}):</b>\n"
+    if groups:
+        sorted_groups = sorted(list(groups))
+        for g_id in sorted_groups:
+            msg += f"├ <code>{g_id}</code>\n"
+        msg = msg.rstrip("\n") # Remove last newline
+    else:
+        msg += "└ <i>No groups approved yet.</i>"
+
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 @restricted_command
 async def set_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -227,14 +227,17 @@ def main():
 
     # --- LOGIC HANDLER ---
     
-    if args.status == 'started':
-        update_redis_status("Initializing")
-
-    if args.status == 'syncing':
-        update_redis_status("Syncing Source")
-
-    if args.status == 'building':
-        update_redis_status("Starting Build")
+    # Update Redis Status for all states
+    status_map = {
+        'started': 'Initializing',
+        'syncing': 'Syncing Source',
+        'building': 'Starting Build',
+        'success': 'Completed',
+        'failure': 'Failed',
+        'aborted': 'Aborted'
+    }
+    if args.status in status_map:
+        update_redis_status(status_map[args.status])
 
     # 0. MONITORING (Looping Progress Bar)
     if args.status == 'monitoring':
@@ -258,49 +261,47 @@ def main():
             
             if os.path.exists(progress_file):
                 try:
-                    with open(progress_file, 'r') as f:
-                        lines = f.readlines()
-                        if lines:
-                            line = lines[-1].strip()
-                            parts = line.split(',')
-                            if len(parts) >= 3:
-                                pct = int(parts[0])
-                                counts = parts[1]
-                                desc = parts[2].lower()
-                                
-                                # Check for Signing/Packaging (Text Only, No Pct)
-                                if any(x in desc for x in ["signing target files", "generating ota zip", "generating json"]):
-                                    clean_desc = desc.replace('.', '').strip().title()
-                                    progress_display = f"⚙️ `{escape_code(clean_desc)}\\.\\.\\.`"
-                                    progress_for_redis = clean_desc
-                                # Check for Bootstrap/Setup Phase
-                                elif re.search(r"bootstrap|analyzing|initializing|including|finishing|writing packaging|writing legacy", desc):
-                                    # Text Mode (No Bar)
-                                    clean_desc = desc.strip()[:25]
-                                    progress_display = f"🧬 `{escape_code(clean_desc)}\\.\\.\\. ({pct}%)`"
-                                    progress_for_redis = f"{clean_desc} ({pct}%)"
-                                else:
-                                    # Ninja Build Mode (With Bar)
-                                    filled = int(pct / 10)
-                                    empty = 10 - filled
-                                    bar = "▰" * filled + "▱" * empty
-                                    progress_display = (
-                                        f"🚀 *LIVE MONITORING*\n"
-                                        f"├ `[{bar}]` {pct}%\n"
-                                        f"└ *Jobs* : `{escape_code(counts)}`"
-                                    )
-                                    progress_for_redis = f"{pct}% ({counts})"
+                    # Efficiently get last line
+                    with open(progress_file, 'rb') as f:
+                        try:
+                            f.seek(-1024, os.SEEK_END)
+                        except OSError: pass # File too small
+                        last_line = f.readlines()[-1].decode().strip()
+                        
+                        parts = last_line.split(',')
+                        if len(parts) >= 3:
+                            pct = int(parts[0])
+                            counts = parts[1]
+                            desc = parts[2].lower()
+                            
+                            # Check for Signing/Packaging (Text Only, No Pct)
+                            if any(x in desc for x in ["signing target files", "generating ota zip", "generating json"]):
+                                clean_desc = desc.replace('.', '').strip().title()
+                                progress_display = f"⚙️ `{escape_code(clean_desc)}\\.\\.\\.`"
+                                progress_for_redis = clean_desc
+                            # Check for Bootstrap/Setup Phase
+                            elif re.search(r"bootstrap|analyzing|initializing|including|finishing|writing packaging|writing legacy", desc):
+                                # Text Mode (No Bar)
+                                clean_desc = desc.strip()[:25]
+                                progress_display = f"🧬 `{escape_code(clean_desc)}\\.\\.\\. ({pct}%)`"
+                                progress_for_redis = f"{clean_desc} ({pct}%)"
+                            else:
+                                # Ninja Build Mode (With Bar)
+                                filled = int(pct / 10)
+                                empty = 10 - filled
+                                bar = "▰" * filled + "▱" * empty
+                                progress_display = (
+                                    f"🚀 *LIVE MONITORING*\n"
+                                    f"├ `[{bar}]` {pct}%\n"
+                                    f"└ *Jobs* : `{escape_code(counts)}`"
+                                )
+                                progress_for_redis = f"{pct}% ({counts})"
                 except: pass
             
             update_redis_status("Building", progress_for_redis)
 
-            # Dynamic Header based on description
-            desc_lower = ""
-            try:
-                if 'desc' in locals():
-                    desc_lower = desc.lower()
-            except: pass
-
+            # Dynamic Header
+            desc_lower = desc.lower() if 'desc' in locals() else ""
             if "signing target files" in desc_lower:
                 header = "🔐 *SIGNING BUILD*"
             elif "generating ota zip" in desc_lower or "generating json" in desc_lower:
@@ -308,36 +309,22 @@ def main():
             else:
                 header = "🔨 *BUILDING ROM*"
 
-            # Construct Message: Header -> Info -> Progress -> Link
-            new_text = (
-                f"{header}\n"
-                f"{info_block}\n\n"
-                f"{progress_display}\n\n"
-                f"📊 [VIEW RUN]({args.build_url})"
-            )
+            new_text = f"{header}\n{info_block}\n\n{progress_display}\n\n📊 [VIEW RUN]({args.build_url})"
             
-            # Update only if text changed
             if new_text != last_text:
                 try:
                     bot.edit_message(args.chat_id, msg_id, new_text, parse_mode='MarkdownV2')
                     last_text = new_text
-                except Exception as e:
-                    print(f"[MONITOR] Edit failed: {e}")
+                except: pass
             
-            time.sleep(8)
+            time.sleep(10) # Increased sleep to 10s for better performance
         return
 
-    # 1. PROGRESS UPDATE (Syncing / Building) -> EDIT MESSAGE
-    if args.status in ['syncing', 'building']:
-        # ... existing code ...
-        pass
-
-    # 2. FINAL STATUS (Success / Failure / Aborted) -> DELETE OLD & SEND NEW
+    # 1. FINAL STATUS CLEANUP (Success / Failure / Aborted)
     if args.status in ['success', 'failure', 'aborted']:
         if redis_client:
             try:
                 redis_client.delete(f"build_status:{args.device}")
-                # Only delete global pointer if it points to us
                 if redis_client.get("active_build_device") == args.device:
                     redis_client.delete("active_build_device")
             except: pass
@@ -347,39 +334,22 @@ def main():
                 with open(msg_id_file, 'r') as f:
                     old_mid = f.read().strip()
                 if old_mid:
-                    print(f"Deleting previous progress message: {old_mid}")
                     bot.delete_message(args.chat_id, old_mid)
                 os.remove(msg_id_file)
-            except Exception as e:
-                print(f"Error deleting previous message: {e}")
+            except: pass
 
-    # --- STARTED ---
+    # 2. ACTIONS
     if args.status == 'started':
-        msg = (
-            f"🚀 *BUILD INITIALIZED*\n"
-            f"{info_block}\n\n"
-            f"📊 [VIEW RUN]({args.build_url})"
-        )
+        msg = f"🚀 *BUILD INITIALIZED*\n{info_block}\n\n📊 [VIEW RUN]({args.build_url})"
         resp = bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2')
-        
-        # Save Message ID
         if resp and 'result' in resp:
-            try:
-                with open(msg_id_file, 'w') as f:
-                    f.write(str(resp['result']['message_id']))
-            except Exception as e:
-                print(f"Error saving message ID: {e}")
+            with open(msg_id_file, 'w') as f:
+                f.write(str(resp['result']['message_id']))
         return
 
-    # --- ABORTED ---
     if args.status == 'aborted':
         record_history(args.device, args.user, "ABORTED")
-        msg = (
-            f"🛑 *BUILD ABORTED*\n"
-            f"{info_block}\n\n"
-            f"📊 [VIEW RUN]({args.build_url})"
-        )
-        bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2')
+        bot.send_message(args.chat_id, f"🛑 *BUILD ABORTED*\n{info_block}\n\n📊 [VIEW RUN]({args.build_url})", topic_id=args.topic_builder, parse_mode='MarkdownV2')
         return
 
     # --- FAILURE ---
@@ -460,73 +430,52 @@ def main():
     # --- SUCCESS ---
     print("Handling Build Success...")
     
-    # Wait a bit for filesystem to sync and tmux session to fully close
-    time.sleep(15)
+    # Wait for filesystem sync
+    time.sleep(10)
     
-    MAX_RETRIES = 3
-    for attempt in range(MAX_RETRIES):
-        if os.path.exists(out_dir):
-            break
-        print(f"Attempt {attempt+1}: Output directory not found: {out_dir}. Retrying in 10s...")
-        time.sleep(10)
-    else:
-        print(f"Error: Output directory not found after retries: {out_dir}")
-        bot.send_message(args.chat_id, f"⚠️ Build Success but Output Dir not found: `{out_dir}`", topic_id=args.topic_builder)
-        return
-
-    print(f"Searching for ZIPs in: {out_dir}")
+    rom_file = None
+    build_log_path = os.path.join(workspace, "build.log")
     
-    # Retry loop for ZIP searching
-    files = []
-    for attempt in range(MAX_RETRIES):
-        # Try preferred pattern first
-        zip_pattern = os.path.join(out_dir, "AxionOS*.zip")
-        files = glob.glob(zip_pattern)
-        
-        # Fallback: Look for any .zip that isn't a known small file
-        if not files:
-            print("Preferred ZIP pattern not found, searching for any ROM zip...")
-            all_zips = glob.glob(os.path.join(out_dir, "*.zip"))
-            files = [f for f in all_zips if os.getsize(f) > 500 * 1024 * 1024]
-        
-        if not files:
-            files = glob.glob(os.path.join(out_dir, "axion*.zip"))
-            
-        if files:
-            break
-            
-        print(f"Attempt {attempt+1}: ZIP not found yet. Retrying in 10s...")
-        time.sleep(10)
+    # Extract path directly from terminal output log (Surgical & Reliable)
+    if os.path.exists(build_log_path):
+        print(f"Reading {build_log_path} to find package path...")
+        try:
+            with open(build_log_path, "r", errors="ignore") as f:
+                lines = f.readlines()
+                for line in reversed(lines):
+                    clean_line = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+                    if "Package Complete:" in clean_line:
+                        path_found = clean_line.split("Package Complete:")[-1].strip()
+                        
+                        # Resolve absolute path
+                        if not os.path.isabs(path_found):
+                            potential_path = os.path.join(args.source_dir, path_found)
+                            if os.path.exists(potential_path):
+                                path_found = potential_path
+                        
+                        if os.path.exists(path_found):
+                            print(f"✅ Found exact package path via log: {path_found}")
+                            rom_file = path_found
+                            break
+        except Exception as e:
+            print(f"Error parsing log: {e}")
 
-    if not files:
-        # List files for debugging in bot log
-        existing = ", ".join(os.listdir(out_dir)[:10]) if os.path.exists(out_dir) else "N/A"
-        bot.send_message(args.chat_id, f"⚠️ Build Success but ZIP not found in `{out_dir}`\nFound: `{existing}`", topic_id=args.topic_builder)
+    if not rom_file:
+        print(f"❌ Error: 'Package Complete:' path not found in {build_log_path}")
+        bot.send_message(args.chat_id, f"⚠️ **Build Success but Artifact Not Found**\nCould not extract `Package Complete` path from logs.", topic_id=args.topic_builder)
         return
     
-    rom_file = max(files, key=os.path.getctime)
     rom_name = os.path.basename(rom_file)
     
     # Upload GoFile
     gofile_link = upload_to_gofile(rom_file) or "Upload Failed"
     
     # --- EXTRA ARTIFACTS ---
-    init_boot_path = os.path.join(out_dir, "init_boot.img")
+    # We still use out_dir to find images (boot, recovery, etc.)
     uploaded_extras = {} # Name -> Link
     
-    # Check for recovery image (standard for AOSP builds)
-    recovery_path = os.path.join(out_dir, "recovery.img")
-    
-    if os.path.exists(init_boot_path):
-        # Modern device structure: boot, vendor_boot, init_boot
-        target_imgs = ["boot.img", "vendor_boot.img", "init_boot.img"]
-    else:
-        # Standard device structure: boot, recovery
-        target_imgs = ["boot.img", "recovery.img"]
-    
-    # Always include recovery if it exists regardless of structure
-    if os.path.exists(recovery_path) and "recovery.img" not in target_imgs:
-        target_imgs.append("recovery.img")
+    # Common images to look for
+    target_imgs = ["boot.img", "recovery.img", "vendor_boot.img", "init_boot.img"]
     
     for img_name in target_imgs:
         img_path = os.path.join(out_dir, img_name)

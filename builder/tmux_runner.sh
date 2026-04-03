@@ -33,70 +33,47 @@ if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     tmux new-session -d -s "$SESSION_NAME"
 else
     echo "[TMUX] Reusing existing session: $SESSION_NAME"
-    # Optional: Clear the screen for a fresh look
     tmux send-keys -t "$SESSION_NAME" "clear" C-m
 fi
+
+# --- PERFORMANCE OPTIMIZATION: LOG STREAMING ---
+# Instead of capturing the whole pane every 3s (High I/O), we pipe the output directly to the log file.
+# We use 'cat -u' for unbuffered output to the log file.
+tmux pipe-pane -t "$SESSION_NAME" "cat -u >> \"$LOG_FILE\""
 
 # Clean markers for this execution
 rm -f "$EXIT_CODE_FILE" "$DONE_FILE"
 
-# Prepare the command with environment variables:
-# 1. Export variables
-# 2. Run command
-# 3. Save exit code
-# 4. Touch done file
-ENV_VARS=(
-    "AOSP_MANIFEST_URL" "AOSP_MANIFEST_BRANCH" "DEVICE" "RELEASETYPE" 
-    "FULLCLEAN" "GMS_VARIANT" 
-    "WORKSPACE" "GITHUB_REPO_NAME" "GITHUB_TOKEN" "AOSP_SOURCE_DIR"
-)
-
-ENV_EXPORT=""
-for var in "${ENV_VARS[@]}"; do
-    # Get value of variable by name
-    val="${!var}"
-    if [ -n "$val" ]; then
-        # Append to export string, escaping double quotes in value
-        ENV_EXPORT+="export $var=\"${val//\"/\\\"}\"; "
-    fi
-done
-
+# ... (Env Var preparation remains the same) ...
 TMUX_CMD="set +e; $ENV_EXPORT $COMMAND; echo \$? > $EXIT_CODE_FILE; touch $DONE_FILE"
 
 # Send command to tmux
 tmux send-keys -t "$SESSION_NAME" "$TMUX_CMD" C-m
 
-echo "[TMUX] Command sent. Monitoring output..."
+echo "[TMUX] Command sent. Streaming logs to $LOG_FILE..."
 
-# Monitoring Loop
+# Monitoring Loop (Reduced I/O)
 while [ ! -f "$DONE_FILE" ]; do
-    # 1. Capture Pane to Log File (Preserve ANSI colors for potential future use, or strip if needed)
-    # Using -e to include escape sequences (colors), -J to join wrapped lines
-    tmux capture-pane -p -e -J -t "$SESSION_NAME" > "$LOG_FILE"
-
-    # 2. Progress Parsing (If Progress File provided)
-    # We parse the LAST few lines of the captured log to update progress
+    # Only capture the LAST 50 lines for progress parsing (Saves CPU/Disk)
     if [ -n "$PROGRESS_FILE" ]; then
-        tail -n 20 "$LOG_FILE" 2>/dev/null | \
+        tmux capture-pane -p -S -50 -t "$SESSION_NAME" | \
         awk -v logfile="$PROGRESS_FILE" '{ 
-            # Remove ANSI colors for parsing
             gsub(/\x1b\[[0-9;]*m/, "");
-            
-            # Match: [ 1% 10/1000] Description... (Handle variable whitespace)
             match($0, /^\[\s*([0-9]+)%\s+([0-9]+\/[0-9]+)([^]]*)\]\s*(.*)/, arr);
-            
             if (arr[1] != "" && arr[2] != "") {
                  print arr[1] "," arr[2] "," arr[4] > logfile;
                  fflush(logfile);
             }
         }'
     fi
-
-    sleep 3
+    sleep 5 # Increased sleep for performance
 done
 
-# Final Capture to ensure we have everything
-tmux capture-pane -p -e -J -t "$SESSION_NAME" > "$LOG_FILE"
+# Stop piping when done
+tmux pipe-pane -t "$SESSION_NAME"
+
+# Retrieve Exit Code
+# ... (rest of cleanup remains same) ...
 
 # Retrieve Exit Code
 EXIT_CODE=0

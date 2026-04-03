@@ -29,7 +29,8 @@ from handlers.github import (
 from handlers.admin import (
     add_user_command, remove_user_command, set_role_command, 
     add_quota_command, approve_chat_command, sync_db_command,
-    save_db_command, set_channel_command, remove_channel_command
+    save_db_command, set_channel_command, remove_channel_command,
+    announce_command, list_chats_command
 )
 from handlers.general import (
     start_command, help_command, list_users_command, guide_command,
@@ -39,17 +40,22 @@ from handlers.general import (
 async def set_bot_commands(app):
     """Sets the bot commands for the Telegram menu with global scope."""
     commands = [
-        BotCommand("build", "Start a new ROM build"),
-        BotCommand("status", "Show real-time progress"),
-        BotCommand("queue", "View GitHub Actions queue"),
-        BotCommand("history", "View build history"),
-        BotCommand("health", "Check server health"),
-        BotCommand("quota", "Check build limits"),
-        BotCommand("cancel", "Cancel a running build"),
-        BotCommand("save", "Save DB to GitHub (Admin)"),
-        BotCommand("setchannel", "Set main output channel (Admin)"),
-        BotCommand("removechannel", "Remove main output channel (Admin)"),
-        BotCommand("help", "Show all commands")
+        BotCommand("build", "🚀 Start a new ROM build"),
+        BotCommand("status", "📊 View real-time progress"),
+        BotCommand("queue", "🔭 View GitHub Actions queue"),
+        BotCommand("history", "📜 View recent build history"),
+        BotCommand("health", "🖥️ Check server disk & RAM"),
+        BotCommand("quota", "🔢 Check your daily build limits"),
+        BotCommand("listuser", "👤 List all authorized maintainers"),
+        BotCommand("cancel", "🛑 Cancel a running workflow"),
+        BotCommand("save", "💾 Force sync Redis to GitHub (Admin)"),
+        BotCommand("sync", "🔄 Force sync GitHub to Redis (Owner)"),
+        BotCommand("announce", "📢 Broadcast message to all groups (Owner)"),
+        BotCommand("listchats", "📡 View all authorized groups & channel (Admin)"),
+        BotCommand("setchannel", "📢 Set main output channel (Admin)"),
+        BotCommand("removechannel", "🗑️ Remove main output channel (Admin)"),
+        BotCommand("approvechat", "✅ Authorize current group (Admin)"),
+        BotCommand("help", "📖 Show help & documentation")
     ]
     try:
         # Set for Private Chats (Default)
@@ -154,10 +160,12 @@ async def main():
     app.add_handler(CommandHandler("setchannel", set_channel_command))
     app.add_handler(CommandHandler("removechannel", remove_channel_command))
     app.add_handler(CommandHandler("approvechat", approve_chat_command))
+    app.add_handler(CommandHandler("listchats", list_chats_command))
     app.add_handler(CommandHandler("adduser", add_user_command))
     app.add_handler(CommandHandler("removeuser", remove_user_command))
     app.add_handler(CommandHandler("setrole", set_role_command))
     app.add_handler(CommandHandler("addquota", add_quota_command))
+    app.add_handler(CommandHandler("announce", announce_command))
 
     app.add_handler(CommandHandler("build", build_command))
     app.add_handler(CommandHandler("status", status_command))
