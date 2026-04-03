@@ -150,8 +150,10 @@ def create_telegram_link(chat_id, topic_id, message_id):
     if clean_chat_id.startswith("-100"):
         clean_chat_id = clean_chat_id[4:]
     
-    if topic_id:
+    # Handle 'none' or empty topic IDs for channels
+    if topic_id and str(topic_id).lower() != "none" and str(topic_id).strip() != "":
         return f"https://t.me/c/{clean_chat_id}/{topic_id}/{message_id}"
+    
     return f"https://t.me/c/{clean_chat_id}/{message_id}"
 
 def main():
@@ -428,126 +430,127 @@ def main():
         return
 
     # --- SUCCESS ---
-    print("Handling Build Success...")
-    
-    # Wait for filesystem sync
-    time.sleep(10)
-    
-    rom_file = None
-    build_log_path = os.path.join(workspace, "build.log")
-    
-    # Extract path directly from terminal output log (Surgical & Reliable)
-    if os.path.exists(build_log_path):
-        print(f"Reading {build_log_path} to find package path...")
-        try:
-            with open(build_log_path, "r", errors="ignore") as f:
-                lines = f.readlines()
-                for line in reversed(lines):
-                    clean_line = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
-                    if "Package Complete:" in clean_line:
-                        path_found = clean_line.split("Package Complete:")[-1].strip()
-                        
-                        # Resolve absolute path
-                        if not os.path.isabs(path_found):
-                            potential_path = os.path.join(args.source_dir, path_found)
-                            if os.path.exists(potential_path):
-                                path_found = potential_path
-                        
-                        if os.path.exists(path_found):
-                            print(f"✅ Found exact package path via log: {path_found}")
-                            rom_file = path_found
-                            break
-        except Exception as e:
-            print(f"Error parsing log: {e}")
+    if args.status == 'success':
+        print("Handling Build Success...")
+        
+        # Wait for filesystem sync
+        time.sleep(10)
+        
+        rom_file = None
+        build_log_path = os.path.join(workspace, "build.log")
+        
+        # Extract path directly from terminal output log (Surgical & Reliable)
+        if os.path.exists(build_log_path):
+            print(f"Reading {build_log_path} to find package path...")
+            try:
+                with open(build_log_path, "r", errors="ignore") as f:
+                    lines = f.readlines()
+                    for line in reversed(lines):
+                        clean_line = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+                        if "Package Complete:" in clean_line:
+                            path_found = clean_line.split("Package Complete:")[-1].strip()
+                            
+                            # Resolve absolute path
+                            if not os.path.isabs(path_found):
+                                potential_path = os.path.join(args.source_dir, path_found)
+                                if os.path.exists(potential_path):
+                                    path_found = potential_path
+                            
+                            if os.path.exists(path_found):
+                                print(f"✅ Found exact package path via log: {path_found}")
+                                rom_file = path_found
+                                break
+            except Exception as e:
+                print(f"Error parsing log: {e}")
 
-    if not rom_file:
-        print(f"❌ Error: 'Package Complete:' path not found in {build_log_path}")
-        bot.send_message(args.chat_id, f"⚠️ **Build Success but Artifact Not Found**\nCould not extract `Package Complete` path from logs.", topic_id=args.topic_builder)
-        return
-    
-    rom_name = os.path.basename(rom_file)
-    
-    # Upload GoFile
-    gofile_link = upload_to_gofile(rom_file) or "Upload Failed"
-    
-    # --- EXTRA ARTIFACTS ---
-    # We still use out_dir to find images (boot, recovery, etc.)
-    uploaded_extras = {} # Name -> Link
-    
-    # Common images to look for
-    target_imgs = ["boot.img", "recovery.img", "vendor_boot.img", "init_boot.img"]
-    
-    for img_name in target_imgs:
-        img_path = os.path.join(out_dir, img_name)
-        if os.path.exists(img_path):
-            print(f"Found extra artifact: {img_name}")
-            u_link = upload_to_gofile(img_path)
+        if not rom_file:
+            print(f"❌ Error: 'Package Complete:' path not found in {build_log_path}")
+            bot.send_message(args.chat_id, f"⚠️ **Build Success but Artifact Not Found**\nCould not extract `Package Complete` path from logs.", topic_id=args.topic_builder)
+            return
+        
+        rom_name = os.path.basename(rom_file)
+        
+        # Upload GoFile
+        gofile_link = upload_to_gofile(rom_file) or "Upload Failed"
+        
+        # --- EXTRA ARTIFACTS ---
+        # We still use out_dir to find images (boot, recovery, etc.)
+        uploaded_extras = {} # Name -> Link
+        
+        # Common images to look for
+        target_imgs = ["boot.img", "recovery.img", "vendor_boot.img", "init_boot.img"]
+        
+        for img_name in target_imgs:
+            img_path = os.path.join(out_dir, img_name)
+            if os.path.exists(img_path):
+                print(f"Found extra artifact: {img_name}")
+                u_link = upload_to_gofile(img_path)
+                if u_link:
+                    uploaded_extras[img_name] = u_link
+
+        # Handle Release JSON
+        json_url = ""
+        
+        # Determine subdirectory based on GMS variant
+        # Variants: Full, Core, Basic, Vanilla
+        gms_dir = "VANILLA" if args.gms == "Vanilla" else "GMS"
+        
+        # Exact Path: out/target/product/<device>/<GMS or VANILLA>/<device>.json
+        json_file = os.path.join(out_dir, gms_dir, f"{args.device}.json")
+
+        if os.path.exists(json_file):
+            print(f"Found JSON artifact: {json_file}")
+            u_link = upload_to_gofile(json_file)
             if u_link:
-                uploaded_extras[img_name] = u_link
-
-    # Handle Release JSON
-    json_url = ""
-    
-    # Determine subdirectory based on GMS variant
-    # Variants: Full, Core, Basic, Vanilla
-    gms_dir = "VANILLA" if args.gms == "Vanilla" else "GMS"
-    
-    # Exact Path: out/target/product/<device>/<GMS or VANILLA>/<device>.json
-    json_file = os.path.join(out_dir, gms_dir, f"{args.device}.json")
-
-    if os.path.exists(json_file):
-        print(f"Found JSON artifact: {json_file}")
-        u_link = upload_to_gofile(json_file)
-        if u_link:
-            json_url = u_link
-            # Just upload to GoFile and include in tree, no separate document send
-    
-    # Final Success Message
-    # Build list of artifact buttons (label, url)
-    buttons = []
-    
-    # Track artifacts for history
-    artifact_history = {
-        "rom": gofile_link,
-        **uploaded_extras
-    }
-    if json_url:
-        artifact_history["ota_json"] = json_url
-    
-    record_history(args.device, args.user, "SUCCESS", artifacts=artifact_history)
-
-    # 1. ROM (Always first, Wide)
-    buttons.append([{"text": "💿 DOWNLOAD ROM ZIP", "url": gofile_link}])
-    
-    # 2. Extras (Grouped in rows of 2 for better layout)
-    extra_items = list(uploaded_extras.items())
-    for i in range(0, len(extra_items), 2):
-        row = []
-        # Item 1
-        name1, link1 = extra_items[i]
-        row.append({"text": f"📥 {name1.upper()}", "url": link1})
-        # Item 2 (if exists)
-        if i + 1 < len(extra_items):
-            name2, link2 = extra_items[i+1]
-            row.append({"text": f"📥 {name2.upper()}", "url": link2})
-        buttons.append(row)
+                json_url = u_link
+                # Just upload to GoFile and include in tree, no separate document send
         
-    # 3. JSON & Build Run
-    last_row = []
-    if json_url:
-        last_row.append({"text": "📄 OTA JSON", "url": json_url})
-    
-    last_row.append({"text": "📊 VIEW RUN", "url": args.build_url})
-    buttons.append(last_row)
+        # Final Success Message
+        # Build list of artifact buttons (label, url)
+        buttons = []
         
-    reply_markup = {"inline_keyboard": buttons}
+        # Track artifacts for history
+        artifact_history = {
+            "rom": gofile_link,
+            **uploaded_extras
+        }
+        if json_url:
+            artifact_history["ota_json"] = json_url
+        
+        record_history(args.device, args.user, "SUCCESS", artifacts=artifact_history)
 
-    msg = (
-        f"✨ *BUILD COMPLETED SUCCESSFULLY*\n"
-        f"{info_block}\n\n"
-        f"📦 *Artifacts are ready for download below\\:*"
-    )
-    bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2', reply_markup=reply_markup)
+        # 1. ROM (Always first, Wide)
+        buttons.append([{"text": "💿 DOWNLOAD ROM ZIP", "url": gofile_link}])
+        
+        # 2. Extras (Grouped in rows of 2 for better layout)
+        extra_items = list(uploaded_extras.items())
+        for i in range(0, len(extra_items), 2):
+            row = []
+            # Item 1
+            name1, link1 = extra_items[i]
+            row.append({"text": f"📥 {name1.upper()}", "url": link1})
+            # Item 2 (if exists)
+            if i + 1 < len(extra_items):
+                name2, link2 = extra_items[i+1]
+                row.append({"text": f"📥 {name2.upper()}", "url": link2})
+            buttons.append(row)
+            
+        # 3. JSON & Build Run
+        last_row = []
+        if json_url:
+            last_row.append({"text": "📄 OTA JSON", "url": json_url})
+        
+        last_row.append({"text": "📊 VIEW RUN", "url": args.build_url})
+        buttons.append(last_row)
+            
+        reply_markup = {"inline_keyboard": buttons}
+
+        msg = (
+            f"✨ *BUILD COMPLETED SUCCESSFULLY*\n"
+            f"{info_block}\n\n"
+            f"📦 *Artifacts are ready for download below\\:*"
+        )
+        bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2', reply_markup=reply_markup)
 
 if __name__ == "__main__":
     main()

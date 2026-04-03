@@ -4,7 +4,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Linux-orange.svg?style=for-the-badge&logo=linux&logoColor=white)
 
-A high-performance CI/CD pipeline for building AxionOS and other Android ROMs. This system bridges GitHub Actions with a Telegram bot interface, allowing for remote-controlled build management and real-time monitoring.
+A high-performance CI/CD pipeline for building AxionOS and other Android ROMs. This system bridges GitHub Actions with a Telegram bot interface, allowing for remote-controlled build management, surgical artifact detection, and real-time monitoring.
 
 ---
 
@@ -12,108 +12,96 @@ A high-performance CI/CD pipeline for building AxionOS and other Android ROMs. T
 
 ### 🏗️ `builder/`
 Contains the core build logic executed on the self-hosted runner.
-*   **`build.sh` / `sync.sh`**: Core AOSP sync and compilation scripts.
-*   **`tmux_runner.sh`**: Orchestrates the build within a persistent `tmux` session and extracts progress logs.
-*   **`reporter.py`**: Background monitoring tool that updates Telegram with progress bars and handles artifact uploads.
+*   **`build.sh` / `sync.sh`**: Core AOSP sync and compilation scripts. Now includes a robust blocking loop to ensure the ROM ZIP is ready before finalizing.
+*   **`tmux_runner.sh`**: Orchestrates the build within a persistent `tmux` session. Uses `pipe-pane` for high-performance, real-time log streaming with zero CPU overhead.
+*   **`reporter.py`**: Background monitoring tool. Uses surgical log parsing (`Package Complete:`) to identify artifacts with 100% accuracy.
 *   **`quota_manager.py`**: Enforces daily build limits and updates user data via the GitHub API.
 *   **`utils/telegram.py`**: Shared utility for Telegram API interactions.
 
 ### 🤖 `telegram-bot/`
 The control center for the entire system.
-*   **`main.py`**: Entry point for the Telegram bot.
-*   **`handlers/`**: Modularized command logic (admin, github, general).
-*   **`check_repo.py` / `check_workflows.py`**: Health check utilities for the runner and GitHub Actions.
-*   **`utils.py`**: Helper functions for bot operations.
-
-### ⚙️ `.github/workflows/`
-*   **`axion_build.yml`**: The main workflow definition that triggers the builder scripts on the self-hosted runner.
+*   **`main.py`**: Entry point for the Telegram bot. Now includes structured logging with a clean terminal interface.
+*   **`handlers/`**: Modularized command logic.
+    *   `github.py`: Build triggers, automatic manifest discovery, and queue management.
+    *   `admin.py`: User management, chat authorization, channel redirection, and broadcast tools.
+*   **`utils.py`**: Helper functions for bot operations and Redis interactions.
 
 ---
 
-## 🚀 Setup Guide
+## 🚀 Key Features
 
-### 1. Build Server Prep (Ubuntu 22.04+)
-Ensure your server is ready for Android compilation:
-```bash
-# Install Build Essentials
-sudo apt update && sudo apt install -y git-core gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig redis-server python3-pip tmux
-
-# Install Repo Tool
-mkdir -p ~/bin && curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo && chmod a+x ~/bin/repo
-echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-```
-
-### 2. Deployment
-1.  **Bot Config:** Create `telegram-bot/.env` (or set environment variables) with your tokens.
-2.  **GitHub Secrets:** Add `GH_PAT`, `TELEGRAM_TOKEN`, and `TELEGRAM_CHAT_ID` to your repository settings.
-3.  **Action Runner:** Register a new Self-Hosted Runner in GitHub and start it.
-4.  **Launch Bot:** Run `python3 telegram-bot/main.py`.
+*   **Smart Manifest Discovery**: Just run `/build <codename>`. The bot automatically pulls the manifest from the `AxionAOSP/device_manifests` repository.
+*   **Zero-Overhead Monitoring**: Real-time progress bars and log summaries streamed via high-performance I/O.
+*   **Channel Redirection**: Redirect build notifications and artifact reports to a dedicated Telegram channel.
+*   **Surgical Artifact Detection**: Extracts the exact output path from build logs to ensure the correct files are uploaded every time.
+*   **Broadcast System**: Owner-only `/announce` command to communicate with all maintainers across all approved groups and channels.
+*   **Dynamic Authorization**: Easily approve or disapprove groups by ID or directly within the chat.
 
 ---
 
 ## 🤖 Bot Commands
 
+### 👤 User Commands
 | Command | Description |
 | :--- | :--- |
-| `/start` | Verify bot connectivity. |
-| `/build <device>` | Trigger a new Build Action via GitHub dispatch. |
-| `/status` | View real-time progress and live logs summary. |
-| `/queue` | Check the current GitHub Actions workflow queue. |
+| `/build <device> [url]` | Start a new build (Auto-finds manifest or uses optional URL). |
+| `/status [device]` | Show real-time ROM build progress. |
+| `/queue` | View the current GitHub Actions workflow queue. |
 | `/history` | View the last 5 build attempts. |
 | `/health` | Monitor server disk, RAM, and runner status. |
 | `/quota` | Check remaining daily build limits. |
 | `/listuser` | List all authorized maintainers. |
+| `/guide` | View detailed build options and manifest templates. |
 
 ### 🛡️ Admin Commands
 | Command | Description |
 | :--- | :--- |
-| `/adduser <ID>` | Whitelist a new maintainer in `database.json`. |
-| `/setrole <ID>` | Update a user's role (admin/user). |
-| `/addquota <ID>` | Grant extra build slots manually. |
+| `/approvechat [ID]` | Authorize a group for bot usage. |
+| `/disapprovechat [ID]` | Remove a group from the authorized list. |
+| `/listchats` | View all authorized groups and the current output channel. |
+| `/adduser <user> [role]` | Whitelist a new maintainer (Admin/User). |
+| `/removeuser <ID>` | Remove a user from the database. |
+| `/setrole <role> <user>` | Update a user's permissions and limits. |
+| `/setchannel <ID>` | Redirect all build notifications to a specific channel. |
+| `/save` | Force a manual sync of the Redis state to the GitHub DB. |
+| `/cancel <RunID>` | Cancel an active GitHub workflow run. |
+
+### 👑 Owner Commands
+| Command | Description |
+| :--- | :--- |
+| `/announce <msg>` | Broadcast an official announcement to all groups and the main channel. |
+| `/sync` | Force a manual sync of the GitHub DB to the Redis cache. |
+| `/addquota <user> <lim>`| Set a custom daily build limit for a specific user. |
 
 ---
 
 ## 📸 Preview
 
-### Build Status Dashboard
-```text
-✨ ACTIVE BUILD STATUS
-━━━━━━━━━━━━━━━━━━━━━━━━
-📱 Device   : begonia
-🚦 Status   : Building
-📊 Progress : [▰▰▰▱▱▱▱▱▱▱] 32% (4500/14000)
-🧬 Variant  : Core - userdebug
-👤 User     : @Saikrishna1504
-⏱️ Updated  : 15s ago
-━━━━━━━━━━━━━━━━━━━━━━━━
-🔗 VIEW LIVE LOGS
-```
+### Build Setup Menu
+The `/build` command triggers an interactive menu to customize your build:
+*   **Type**: Toggle build type (user, userdebug, eng).
+*   **GMS**: Choose variant (Core, Pico, Vanilla).
+*   **Clean**: Toggle `mka clean` before building.
+*   **Target**: Dynamically redirects to your main channel if configured.
 
 ### Artifact Delivery
-```text
-✨ BUILD COMPLETED SUCCESSFULLY
-━━━━━━━━━━━━━━━━━━━━━━━━
-├ 📱 Device  : begonia
-├ 👤 Trigger : @Saikrishna1504
-├ 🧬 Variant : Core - userdebug
-└ ━━━━━━━━━━━━━━━━━━━━━━━
-
-📦 Artifacts are ready for download below:
-
-[ 💿 DOWNLOAD ROM ZIP ]
-[ 📥 BOOT.IMG ] [ 📥 RECOVERY.IMG ]
-[ 📄 OTA JSON ] [ 📊 VIEW RUN ]
-```
+Once a build is complete, you get a premium delivery card:
+*   **💿 DOWNLOAD ROM ZIP**: Primary artifact link.
+*   **📥 IMAGE ARTIFACTS**: Boot, Recovery, and Vendor images grouped for a clean UI.
+*   **📄 OTA JSON**: Direct link to the generated release metadata.
 
 ---
 
 ## 🖥️ Monitoring & Debugging
 
+### Live Logs
+The bot saves structured logs to `telegram-bot/bot.log` while maintaining a clean, human-readable terminal output. Monitor them in real-time:
+```bash
+tail -f telegram-bot/bot.log
+```
+
 ### Persistent Console
-Monitor the live terminal output (Sync + Build) from any shell:
+Monitor the raw build environment from the server:
 ```bash
 TMUX= tmux attach -t axion_build
 ```
-
-### Data Persistence
-User quotas and permissions are stored in `database.json`, which is automatically updated by the `quota_manager.py` script via the GitHub API to ensure consistency across build runs.

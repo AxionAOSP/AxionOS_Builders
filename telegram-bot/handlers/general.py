@@ -187,7 +187,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin:
         help_text += (
             "**🛡️ Admin Commands:**\n"
-            "`/approvechat` - Authorize this group for bot usage.\n"
+            "`/approvechat [ID]` - Authorize a group for bot usage.\n"
+            "`/disapprovechat [ID]` - Unauthorize a group.\n"
+            "`/listchats` - View all authorized groups & channel.\n"
             "`/adduser <User> [role]` - Add/Update a maintainer.\n"
             "`/removeuser <ID>` - Remove a user from database.\n"
             "`/setrole <Role> <User> [Limit]` - Update permissions.\n"

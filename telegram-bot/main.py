@@ -3,6 +3,29 @@ import sys
 import asyncio
 import time
 import json
+import logging
+
+# === CONFIG LOGGING ===
+bot_dir = os.path.dirname(os.path.abspath(__file__))
+log_file = os.path.join(bot_dir, "bot.log")
+
+# 1. Detailed Format for File
+file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler = logging.FileHandler(log_file)
+file_handler.setFormatter(file_formatter)
+
+# 2. Simple Format for Console (Human Readable)
+console_formatter = logging.Formatter('%(message)s')
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(console_formatter)
+
+# 3. Apply Config
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.addHandler(file_handler)
+root_logger.addHandler(console_handler)
+
+logger = logging.getLogger("BotMain")
 
 # === CUSTOM LIBRARY LOADER ===
 custom_lib_path = os.path.expanduser("~/pylib")
@@ -28,8 +51,8 @@ from handlers.github import (
 )
 from handlers.admin import (
     add_user_command, remove_user_command, set_role_command, 
-    add_quota_command, approve_chat_command, sync_db_command,
-    save_db_command, set_channel_command, remove_channel_command,
+    add_quota_command, approve_chat_command, disapprove_chat_command,
+    sync_db_command, save_db_command, set_channel_command, remove_channel_command,
     announce_command, list_chats_command
 )
 from handlers.general import (
@@ -54,7 +77,8 @@ async def set_bot_commands(app):
         BotCommand("listchats", "📡 View all authorized groups & channel (Admin)"),
         BotCommand("setchannel", "📢 Set main output channel (Admin)"),
         BotCommand("removechannel", "🗑️ Remove main output channel (Admin)"),
-        BotCommand("approvechat", "✅ Authorize current group (Admin)"),
+        BotCommand("approvechat", "✅ Authorize a group (Admin)"),
+        BotCommand("disapprovechat", "🗑️ Unauthorize a group (Admin)"),
         BotCommand("help", "📖 Show help & documentation")
     ]
     try:
@@ -67,31 +91,48 @@ async def set_bot_commands(app):
         print(f"[ERROR] Failed to set commands: {e}")
 
 async def sync_active_builds():
-    """Startup task to populate Redis with active GitHub runs"""
-    runs = await get_workflow_runs(status="in_progress")
+    """Startup task to populate Redis with active and queued GitHub runs"""
+    # Fetch both in_progress and queued runs
+    active_runs = await get_workflow_runs(status="in_progress") or []
+    queued_runs = await get_workflow_runs(status="queued") or []
+    runs = active_runs + queued_runs
+    
     if not runs: return
     
     r = await get_redis()
-    print(f"[INIT] Found {len(runs)} active builds. Re-syncing...")
+    logger.info(f"Found {len(runs)} active/queued builds. Re-syncing Redis...")
     
     for run in runs:
-        # Reconstruct device from title if possible
+        # Reconstruct device from title
+        # Format: 'begonia (Core) | User: Saikrishna1504'
         title = run.get("display_title", "") or run.get("name", "")
+        device = "Unknown"
+        
         if "(" in title:
+            # Extract 'begonia' from 'begonia (Core) | User: ...'
             device = title.split("(")[0].strip()
+        elif "|" in title:
+            device = title.split("|")[0].strip()
             
-            # Create minimal entry if missing
-            if not await r.exists(f"build_status:{device}"):
-                data = {
-                    "status": "Resumed (Monitoring...)",
-                    "device": device,
-                    "url": run.get("html_url"),
-                    "run_id": run.get("id"),
-                    "updated_at": int(time.time()),
-                    "progress": "Resuming progress tracking..."
-                }
-                await r.set(f"build_status:{device}", json.dumps(data), ex=86400)
-                await r.set("active_build_device", device, ex=86400)
+        # Create or update entry
+        status_key = f"build_status:{device}"
+        current_status = "Resumed (Active)" if run.get("status") == "in_progress" else "Queued (Waiting)"
+        
+        # If entry doesn't exist, create a baseline
+        if not await r.exists(status_key):
+            data = {
+                "status": current_status,
+                "device": device,
+                "url": run.get("html_url"),
+                "run_id": run.get("id"),
+                "updated_at": int(time.time()),
+                "progress": "Bot restarted - Resuming monitoring..."
+            }
+            await r.set(status_key, json.dumps(data), ex=86400)
+            await r.set("active_build_device", device, ex=86400)
+            logger.info(f"Resumed tracking for {device} ({run.get('status')})")
+        else:
+            logger.info(f"Tracking already active for {device}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a Telegram message to notify the developer."""
@@ -111,21 +152,21 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def main():
     if not BOT_TOKEN or not REDIS_URL:
-        print("[ERROR] Config Missing. Check private.env")
+        logger.error("Config Missing. Check private.env")
         return
 
     # 1. Init Redis & DB Cache
     r = await get_redis()
     try:
         await r.ping()
-        print("[INIT] Redis Connected.")
+        logger.info("Redis Connected.")
         # Load fresh data from GitHub into Redis on startup
-        print("[INIT] Refreshing DB cache from GitHub...")
+        logger.info("Refreshing DB cache from GitHub...")
         await fetch_db_from_github()
         # Re-sync active builds
         await sync_active_builds()
     except Exception as e:
-        print(f"[ERROR] Startup: {e}")
+        logger.critical(f"Startup Failure: {e}")
         return
 
     # 2. Build App with Optimized HTTPX Request and Persistence
@@ -160,6 +201,7 @@ async def main():
     app.add_handler(CommandHandler("setchannel", set_channel_command))
     app.add_handler(CommandHandler("removechannel", remove_channel_command))
     app.add_handler(CommandHandler("approvechat", approve_chat_command))
+    app.add_handler(CommandHandler("disapprovechat", disapprove_chat_command))
     app.add_handler(CommandHandler("listchats", list_chats_command))
     app.add_handler(CommandHandler("adduser", add_user_command))
     app.add_handler(CommandHandler("removeuser", remove_user_command))
@@ -176,7 +218,7 @@ async def main():
     app.add_handler(CallbackQueryHandler(handle_github_callbacks, pattern=r"^(build_).*"))
 
     # 4. Run Loop
-    print("🚀 Bot is Running (Fully Optimized Mode)")
+    logger.info("🚀 Bot is Running (Fully Optimized Mode)")
     await app.initialize()
     await set_bot_commands(app)
     await app.start()
@@ -187,12 +229,12 @@ async def main():
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
-        print("Shutting down...")
+        logger.info("Shutting down...")
         await r.close()
         await app.updater.stop()
         await app.stop()
         await app.shutdown()
-        print("Bot Stopped.")
+        logger.info("Bot Stopped.")
 
 if __name__ == "__main__":
     asyncio.run(main())

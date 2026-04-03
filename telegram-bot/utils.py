@@ -4,12 +4,14 @@ import asyncio
 import httpx
 import time
 import base64
+import logging
 from datetime import datetime, timezone, timedelta
 from functools import partial, wraps
 from dotenv import load_dotenv
 import redis.asyncio as redis
 
 # === CONFIGURATION ===
+logger = logging.getLogger("BotUtils")
 base_dir = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(base_dir, 'private.env'))
 
@@ -174,10 +176,12 @@ async def fetch_db_from_github():
                 # Save SHA for next commit
                 pipe.hset(RK_CONFIG, "db_sha", data['sha'])
                 await pipe.execute()
-                print("[DB] Redis cache refreshed from GitHub.")
+                logger.info(f"Redis cache refreshed from GitHub (SHA: {data['sha'][:7]})")
                 return db
+            else:
+                logger.error(f"GitHub Fetch Failed: Status {resp.status_code}")
         except Exception as e:
-            print(f"[DB ERROR] Github Fetch Failed: {e}")
+            logger.error(f"GitHub Fetch Exception: {e}")
     return None
 
 async def save_db_to_github(commit_message="database: update from bot"):
@@ -223,10 +227,12 @@ async def save_db_to_github(commit_message="database: update from bot"):
             if resp.status_code in [200, 201]:
                 new_sha = resp.json()['content']['sha']
                 await r.hset(RK_CONFIG, "db_sha", new_sha)
-                print(f"[DB] GitHub backup successful: {commit_message}")
+                logger.info(f"GitHub backup successful: {commit_message}")
                 return True
+            else:
+                logger.error(f"GitHub Sync Failed: Status {resp.status_code} - {resp.text}")
         except Exception as e:
-            print(f"[DB ERROR] GitHub Sync Failed: {e}")
+            logger.error(f"GitHub Sync Exception: {e}")
     return False
 
 # === USER & AUTH (O(1) PERFORMANCE) ===

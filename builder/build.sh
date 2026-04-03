@@ -37,8 +37,9 @@ echo "Sourcing build/envsetup.sh..."
 
 # Handle Full Clean step (cleans the entire 'out' directory)
 if [ "$FULLCLEAN" == "Yes" ]; then
-    echo "FULLCLEAN is Yes, running 'make clean'..."
-    make clean || { echo "Make clean failed"; exit 1; }
+    echo "FULLCLEAN is Yes, running high-performance cleanup (rm -rf out)..."
+    rm -rf out || { echo "Cleanup failed"; exit 1; }
+    echo "Cleanup complete."
 fi
 
 # Run Axion Configure command
@@ -50,9 +51,13 @@ axion "$DEVICE" $AXION_VARIANT || { echo "Axion configuration failed"; exit 1; }
 # Usage: ax -br -j<count>
 echo "Starting Axion build process (ax -br)..."
 
-# Initial build command. 
-# Note: If this command exits after installclean, we handle it below.
-ax -br
+# Initial build command.
+# If this command fails (non-zero exit), we exit immediately.
+# If it succeeds but was just an 'installclean', we wait for the real ZIP below.
+ax -br || { 
+    echo "❌ Build command failed with exit code $?. Exiting."
+    exit 1
+}
 
 # --- AXION BUILD SYSTEM WORKAROUND ---
 # ax -br might exit after 'installclean'. We must block until the REAL build finishes.

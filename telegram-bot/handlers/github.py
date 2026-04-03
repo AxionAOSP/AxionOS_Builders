@@ -276,7 +276,7 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Usage: `/build <device> [manifest_url]`\n\nExample:\n- `/build begonia` (Uses default manifest repo)\n- `/build begonia https://link.to/custom.xml` (Uses custom manifest)", parse_mode="Markdown")
         return
 
-    dev = context.args[0].lower()
+    dev = context.args[0]
     
     # Strategy: 1. Use provided URL, 2. Fallback to default AxionAOSP manifest repo
     if len(context.args) >= 2:
@@ -371,15 +371,42 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
             r = await get_redis()
             from utils import RK_CONFIG
             main_chan = await r.hget(RK_CONFIG, "main_output_channel")
+            
             target_desc = "Current Chat"
+            kb = None
+            
             if main_chan:
                 p["CHAT_ID"] = main_chan
                 p["TOPIC_ID"] = "none" # Use 'none' to explicitly disable topics in channel
-                target_desc = f"Channel (ID: {main_chan})"
+                target_desc = f"Channel (ID: <code>{main_chan}</code>)"
+                
+                # Generate a link for the button if it's a channel ID
+                link = None
+                if str(main_chan).startswith("-100"):
+                    chan_id_clean = str(main_chan)[4:]
+                    # Appending /1 ensures the chat opens even if it's a private channel
+                    link = f"https://t.me/c/{chan_id_clean}/1"
+                elif str(main_chan).startswith("-"):
+                    # For regular groups, we can only try basic link
+                    link = f"https://t.me/{main_chan}"
+                
+                if link:
+                    kb = InlineKeyboardMarkup([[InlineKeyboardButton("📣 VIEW CHANNEL", url=link)]])
             
-            await query.edit_message_text(f"⏳ <b>Dispatching Workflow...</b>\nOutput: <code>{target_desc}</code>", parse_mode=ParseMode.HTML)
+            await query.edit_message_text(f"⏳ <b>Dispatching Workflow...</b>\nTarget: {target_desc}", parse_mode=ParseMode.HTML)
+            
             if await trigger_workflow(p):
-                await query.edit_message_text(f"✅ <b>Build Started!</b>\nDevice: <code>{p['DEVICE']}</code>\nOutput: <code>{target_desc}</code>\nCheck channel shortly.", parse_mode=ParseMode.HTML)
+                await query.edit_message_text(
+                    f"✅ <b>Build Started Successfully!</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📱 <b>Device</b> : <code>{p['DEVICE']}</code>\n"
+                    f"🎯 <b>Output</b> : {target_desc}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"<i>The progress dashboard will appear in the target chat shortly.</i>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb
+                )
+                
                 # Update Redis Locally (No commit to GitHub to avoid 2 commits)
                 def inc_mod(d):
                     d["daily_count"] = d.get("daily_count", 0) + 1
@@ -387,7 +414,7 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
                     return True
                 await update_user_data(query.from_user.id, inc_mod, commit_msg=None)
             else:
-                await query.edit_message_text("❌ <b>GitHub API Error.</b>", parse_mode=ParseMode.HTML)
+                await query.edit_message_text("❌ <b>GitHub API Error.</b>\nCheck GITHUB_TOKEN or Actions status.", parse_mode=ParseMode.HTML)
 
     elif data.startswith("build_set:"):
         k = data.split(":")[1]

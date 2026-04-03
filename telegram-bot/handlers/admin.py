@@ -17,31 +17,60 @@ async def approve_chat_command(update: Update, context: ContextTypes.DEFAULT_TYP
     sender_id = user.id
 
     # 1. Check Permissions (Admin or Owner)
-    # We check ADMIN_USER_IDS from ENV first as it's the safest way for the owner
     from utils import ADMIN_USER_IDS
     sender_data = await get_user_data(sender_id)
     sender_role = sender_data.get("role") if sender_data else None
-    
     is_admin = (sender_id == OWNER_ID) or (sender_id in ADMIN_USER_IDS) or sender_role in [ROLE_ADMIN, ROLE_OWNER]
     
     if not is_admin:
-        # Silently ignore or reply if it's a private chat
-        if chat.type == "private":
-            await update.message.reply_text("⛔ **Access Denied.**")
+        if chat.type == "private": await update.message.reply_text("⛔ **Access Denied.**")
         return
 
-    chat_id = str(chat.id)
-    chat_title = chat.title or "Private Chat"
+    # Determine Chat ID
+    if context.args:
+        chat_id = context.args[0]
+        chat_title = f"Manual ID: {chat_id}"
+    else:
+        chat_id = str(chat.id)
+        chat_title = chat.title or "Private Chat"
 
-    # 2. Add to Redis (Instant)
+    # 2. Add to Redis
     r = await get_redis()
     is_new = await r.sadd(RK_CHATS, chat_id)
 
     if is_new:
-        # DO NOT trigger GitHub backup here as per user request
-        await update.message.reply_text(f"✅ **Chat Approved (Local Only)**\nTitle: `{chat_title}`\nID: `{chat_id}`\n\nUsers in this group can now use bot commands. Use `/save` to persist this across bot restarts.")
+        await update.message.reply_text(f"✅ **Chat Approved (Local Only)**\nTitle: `{chat_title}`\nID: `{chat_id}`\n\nUse `/save` to persist this across bot restarts.")
     else:
         await update.message.reply_text(f"⚠️ Chat `{chat_id}` is already approved.")
+
+@restricted_command
+async def disapprove_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Removes a chat from approved list (Admin only)"""
+    user = update.effective_user
+    chat = update.effective_chat
+    sender_id = user.id
+
+    sender_data = await get_user_data(sender_id)
+    sender_role = sender_data.get("role") if sender_data else None
+    is_admin = (sender_id == OWNER_ID) or sender_role in [ROLE_ADMIN, ROLE_OWNER]
+    
+    if not is_admin:
+        await update.message.reply_text("⛔ **Access Denied.**")
+        return
+
+    # Determine Target ID
+    if context.args:
+        target_id = context.args[0]
+    else:
+        target_id = str(chat.id)
+
+    r = await get_redis()
+    existed = await r.srem(RK_CHATS, target_id)
+
+    if existed:
+        await update.message.reply_text(f"🗑️ **Chat Disapproved (Local Only)**\nID: `{target_id}`\n\nUse `/save` to persist this change.")
+    else:
+        await update.message.reply_text(f"❌ Chat `{target_id}` was not in the approved list.")
 
 @restricted_command
 async def save_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -143,15 +172,21 @@ async def announce_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ **Usage:**\n- `/announce <Your Message>`\n- Reply to a message with `/announce`", parse_mode="Markdown")
         return
 
-    # 2. Get all allowed chats from Redis
+    # 2. Get all targets (Groups + Main Channel)
     r = await get_redis()
-    chats = await r.smembers(RK_CHATS)
+    from utils import RK_CONFIG
+    
+    chats = list(await r.smembers(RK_CHATS))
+    main_chan = await r.hget(RK_CONFIG, "main_output_channel")
+    
+    if main_chan and main_chan not in chats:
+        chats.append(main_chan)
     
     if not chats:
-        await update.message.reply_text("❌ No approved chats found in database.")
+        await update.message.reply_text("❌ No approved chats or channels found in database.")
         return
 
-    status_msg = await update.message.reply_text(f"📢 **Broadcasting to {len(chats)} chats...**", parse_mode="Markdown")
+    status_msg = await update.message.reply_text(f"📢 **Broadcasting to {len(chats)} targets...**", parse_mode="Markdown")
     
     success_count = 0
     fail_count = 0
@@ -463,4 +498,3 @@ async def remove_channel_command(update: Update, context: ContextTypes.DEFAULT_T
     from utils import RK_CONFIG
     await r.hdel(RK_CONFIG, "main_output_channel")
     await update.message.reply_text("✅ **Main Output Channel Removed.**\nBuild notifications will now stay in the group where they were triggered.")
-
