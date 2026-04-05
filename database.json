@@ -1,5 +1,13 @@
 {
   "users": {
+    "2036946327": {
+      "daily_count": 0,
+      "last_build_date": "",
+      "role": "user",
+      "username": "No_Cache",
+      "added_by": "1484367093",
+      "added_date": "2026-04-05"
+    },
     "1338252069": {
       "daily_count": 5,
       "last_build_date": "2026-04-05",
@@ -24,7 +32,7 @@
     }
   },
   "allowed_chats": [
-    "-1001668507245",
-    "-1002929964497"
+    "-1002929964497",
+    "-1001668507245"
   ]
 }
