@@ -66,7 +66,8 @@ async def cancel_workflow_run(run_id):
         try:
             resp = await client.post(url, headers=get_github_headers(), timeout=15)
             return resp.status_code == 202
-        except Exception as e: print(f"[GH ERROR] Cancel failed: {e}")
+        except Exception as e:
+            print(f"[GH ERROR] Cancel failed: {e}")
             return False
 
 @restricted_command
