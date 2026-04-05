@@ -16,6 +16,12 @@
       "added_by": "1484367093",
       "added_date": "2026-04-05"
     },
+    "1484367093": {
+      "username": "Saikrishna1504",
+      "role": "owner",
+      "last_build_date": "2026-04-05",
+      "daily_count": 2
+    },
     "5228946425": {
       "daily_count": 1,
       "last_build_date": "2026-03-31",
@@ -24,11 +30,13 @@
       "added_by": "1484367093",
       "added_date": "2026-03-31"
     },
-    "1484367093": {
-      "username": "Saikrishna1504",
-      "role": "owner",
-      "last_build_date": "2026-04-05",
-      "daily_count": 2
+    "5034150053": {
+      "daily_count": 0,
+      "last_build_date": "",
+      "role": "user",
+      "username": "Amritorock",
+      "added_by": "1484367093",
+      "added_date": "2026-04-05"
     }
   },
   "allowed_chats": [
