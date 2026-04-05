@@ -253,6 +253,7 @@ jobs:
           pkill -f "reporter.py --status monitoring" || true
 
       - name: Notify Cancelled
+        if: cancelled()
         run: |
             python3 builder/reporter.py \
               --run-id "${{ github.run_id }}" \
