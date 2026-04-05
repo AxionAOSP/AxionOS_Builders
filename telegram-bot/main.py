@@ -5,21 +5,15 @@ import time
 import json
 import logging
 
-# === CONFIG LOGGING ===
 bot_dir = os.path.dirname(os.path.abspath(__file__))
 log_file = os.path.join(bot_dir, "bot.log")
 
-# 1. Detailed Format for File
-file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 file_handler = logging.FileHandler(log_file)
-file_handler.setFormatter(file_formatter)
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
-# 2. Simple Format for Console (Human Readable)
-console_formatter = logging.Formatter('%(message)s')
 console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(console_formatter)
+console_handler.setFormatter(logging.Formatter('%(message)s'))
 
-# 3. Apply Config
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 root_logger.addHandler(file_handler)
@@ -27,24 +21,20 @@ root_logger.addHandler(console_handler)
 
 logger = logging.getLogger("BotMain")
 
-# === CUSTOM LIBRARY LOADER ===
 custom_lib_path = os.path.expanduser("~/pylib")
 if os.path.isdir(custom_lib_path):
     if custom_lib_path not in sys.path:
         sys.path.insert(0, custom_lib_path)
         print(f"[INIT] Loading custom libraries from: {custom_lib_path}")
 
-# === IMPORTS ===
 import redis.asyncio as redis
 from telegram import BotCommand, BotCommandScopeDefault, BotCommandScopeAllGroupChats, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 from telegram.request import HTTPXRequest
 from dotenv import load_dotenv
 
-# Import Utils
 from utils import BOT_TOKEN, REDIS_URL, fetch_db_from_github, get_redis, RedisPersistence, OWNER_ID
 
-# Import Handlers
 from handlers.github import (
     build_command, status_command, queue_command, quota_command, cancel_command,
     handle_github_callbacks, get_workflow_runs
@@ -61,7 +51,7 @@ from handlers.general import (
 )
 
 async def set_bot_commands(app):
-    """Sets the bot commands for the Telegram menu with global scope."""
+    """Sets bot commands for Telegram menu"""
     commands = [
         BotCommand("build", "🚀 Start a new ROM build"),
         BotCommand("status", "📊 View real-time progress"),
@@ -82,17 +72,14 @@ async def set_bot_commands(app):
         BotCommand("help", "📖 Show help & documentation")
     ]
     try:
-        # Set for Private Chats (Default)
         await app.bot.set_my_commands(commands, scope=BotCommandScopeDefault())
-        # Set for all Groups
         await app.bot.set_my_commands(commands, scope=BotCommandScopeAllGroupChats())
-        print("[INIT] Bot commands registered for all scopes.")
+        print("[INIT] Bot commands registered.")
     except Exception as e:
         print(f"[ERROR] Failed to set commands: {e}")
 
 async def sync_active_builds():
-    """Startup task to populate Redis with active and queued GitHub runs"""
-    # Fetch both in_progress and queued runs
+    """Syncs active/queued GitHub runs to Redis on startup"""
     active_runs = await get_workflow_runs(status="in_progress") or []
     queued_runs = await get_workflow_runs(status="queued") or []
     runs = active_runs + queued_runs
@@ -100,25 +87,17 @@ async def sync_active_builds():
     if not runs: return
     
     r = await get_redis()
-    logger.info(f"Found {len(runs)} active/queued builds. Re-syncing Redis...")
+    logger.info(f"Found {len(runs)} active/queued builds. Syncing Redis...")
     
     for run in runs:
-        # Reconstruct device from title
-        # Format: 'begonia (Core) | User: Saikrishna1504'
         title = run.get("display_title", "") or run.get("name", "")
         device = "Unknown"
-        
-        if "(" in title:
-            # Extract 'begonia' from 'begonia (Core) | User: ...'
-            device = title.split("(")[0].strip()
-        elif "|" in title:
-            device = title.split("|")[0].strip()
+        if "(" in title: device = title.split("(")[0].strip()
+        elif "|" in title: device = title.split("|")[0].strip()
             
-        # Create or update entry
         status_key = f"build_status:{device}"
         current_status = "Resumed (Active)" if run.get("status") == "in_progress" else "Queued (Waiting)"
         
-        # If entry doesn't exist, create a baseline
         if not await r.exists(status_key):
             data = {
                 "status": current_status,
@@ -130,17 +109,13 @@ async def sync_active_builds():
             }
             await r.set(status_key, json.dumps(data), ex=86400)
             await r.set("active_build_device", device, ex=86400)
-            logger.info(f"Resumed tracking for {device} ({run.get('status')})")
-        else:
-            logger.info(f"Tracking already active for {device}")
+            logger.info(f"Resumed tracking for {device}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log the error and send a Telegram message to notify the developer."""
-    print(f"[ERROR] Exception while handling an update: {context.error}")
-    
+    """Logs error and notifies owner"""
+    print(f"[ERROR] Exception: {context.error}")
     if OWNER_ID:
         try:
-            # Create a clean error message
             err_msg = str(context.error)
             await context.bot.send_message(
                 chat_id=OWNER_ID,
@@ -148,28 +123,23 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
                 parse_mode="HTML"
             )
         except Exception as e:
-            print(f"[ERROR] Failed to send error message to owner: {e}")
+            print(f"[ERROR] Failed to notify owner: {e}")
 
 async def main():
     if not BOT_TOKEN or not REDIS_URL:
         logger.error("Config Missing. Check private.env")
         return
 
-    # 1. Init Redis & DB Cache
     r = await get_redis()
     try:
         await r.ping()
         logger.info("Redis Connected.")
-        # Load fresh data from GitHub into Redis on startup
-        logger.info("Refreshing DB cache from GitHub...")
         await fetch_db_from_github()
-        # Re-sync active builds
         await sync_active_builds()
     except Exception as e:
         logger.critical(f"Startup Failure: {e}")
         return
 
-    # 2. Build App with Optimized HTTPX Request and Persistence
     trequest = HTTPXRequest(
         connection_pool_size=30,
         read_timeout=60.0,
@@ -180,14 +150,10 @@ async def main():
     
     persistence = RedisPersistence()
     app = ApplicationBuilder().token(BOT_TOKEN).request(trequest).persistence(persistence).build()
-
-    # Add error handler
     app.add_error_handler(error_handler)
-
-    # Inject Redis into bot_data (Async compatible)
     app.bot_data["redis"] = r
 
-    # 3. Register Handlers
+    # Register Handlers
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("guide", guide_command))
@@ -217,8 +183,7 @@ async def main():
 
     app.add_handler(CallbackQueryHandler(handle_github_callbacks, pattern=r"^(build_).*"))
 
-    # 4. Run Loop
-    logger.info("🚀 Bot is Running (Fully Optimized Mode)")
+    logger.info("🚀 Bot is Running")
     await app.initialize()
     await set_bot_commands(app)
     await app.start()

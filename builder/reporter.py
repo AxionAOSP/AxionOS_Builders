@@ -1,160 +1,80 @@
 #!/usr/bin/env python3
 import os
 import sys
-
-# === CUSTOM LIBRARY LOADER ===
-custom_lib_path = os.path.expanduser("~/pylib")
-if os.path.isdir(custom_lib_path):
-    if custom_lib_path not in sys.path:
-        sys.path.insert(0, custom_lib_path)
-        print(f"[INIT] Loading custom libraries from: {custom_lib_path}")
-
 import argparse
-import glob
 import requests
 import json
 import redis
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 import subprocess
 import time
 import re
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from utils.telegram import TelegramBot
 
+custom_lib_path = os.path.expanduser("~/pylib")
+if os.path.isdir(custom_lib_path) and custom_lib_path not in sys.path:
+    sys.path.insert(0, custom_lib_path)
+
 def escape_markdown_v2(text):
-    """Escapes all special characters for MarkdownV2 (outside code blocks)"""
-    if not text:
-        return ""
-    # 1. Escape backslash FIRST to avoid escaping the escapes later
+    if not text: return ""
     text = text.replace('\\', '\\\\')
-    # 2. Escape other special characters
-    special_chars = r"_*[]()~`>#+-=|{}.!"
-    for char in special_chars:
+    for char in r"_*[]()~`>#+-=|{}.!":
         text = text.replace(char, f"\\{char}")
     return text
 
 def escape_code(text):
-    """Escapes characters for MarkdownV2 inside code blocks"""
-    if not text:
-        return ""
+    if not text: return ""
     return text.replace('\\', '\\\\').replace('`', '\\`')
 
 def upload_to_gofile(file_path):
-    print(f"Uploading {file_path} to GoFile...")
     headers = {'User-Agent': 'Mozilla/5.0'}
-    
-    # Robust Session for Uploads
     session = requests.Session()
-    retries = Retry(
-        total=5,
-        backoff_factor=1,
-        status_forcelist=[500, 502, 503, 504],
-        allowed_methods=frozenset(['POST'])
-    )
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504], allowed_methods=frozenset(['POST']))
     session.mount("https://", HTTPAdapter(max_retries=retries))
-    
-    url = "https://upload.gofile.io/uploadFile"
-
-    # 2. Upload
     try:
         with open(file_path, 'rb') as f:
-            upload_req = session.post(
-                url,
-                files={'file': f},
-                headers=headers,
-                timeout=600 # 10 minutes timeout for large files
-            )
-            
-            try:
-                upload_data = upload_req.json()
-            except ValueError:
-                 print(f"GoFile JSON Error: {upload_req.text}")
-                 return None
-
-            if upload_data['status'] == 'ok':
-                return upload_data['data']['downloadPage']
-            else:
-                print(f"GoFile upload failed: {upload_data}")
-                return None
-    except Exception as e:
-        print(f"GoFile Exception: {e}")
-        return None
+            resp = session.post("https://upload.gofile.io/uploadFile", files={'file': f}, headers=headers, timeout=600)
+            data = resp.json()
+            return data['data']['downloadPage'] if data.get('status') == 'ok' else None
+    except: return None
 
 def get_file_tail(file_path, lines=200):
     try:
-        result = subprocess.check_output(['tail', '-n', str(lines), file_path])
-        return result.decode('utf-8', errors='ignore')
-    except Exception as e:
-        return f"Error reading log: {e}"
+        return subprocess.check_output(['tail', '-n', str(lines), file_path]).decode('utf-8', errors='ignore')
+    except: return "Error reading log."
 
 def get_error_summary(log_path):
-    if not log_path or not os.path.exists(log_path):
-        return None
-    
+    if not log_path or not os.path.exists(log_path): return None
     try:
-        # Read last 100 lines
         with open(log_path, 'r', errors='ignore') as f:
-            lines = f.readlines()
-            lines = lines[-100:] if len(lines) > 100 else lines
-        
+            lines = f.readlines()[-100:]
         keywords = ["error:", "fatal error:", "failed:", "undefined module"]
         error_lines = []
         for line in lines:
-            line_lower = line.lower()
-            if any(kw in line_lower for kw in keywords):
-                clean_line = line.strip()
-                if clean_line not in error_lines:
-                    error_lines.append(clean_line)
-        
-        # Return last 3 unique error lines
+            if any(kw in line.lower() for kw in keywords) and line.strip() not in error_lines:
+                error_lines.append(line.strip())
         last_3 = error_lines[-3:]
-        if not last_3:
-            return None
-            
-        summary = "⚠️ *ERROR SUMMARY*\n"
-        summary += "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        for err in last_3:
-            summary += f"• `{escape_code(err)}` \n"
-        summary += "━━━━━━━━━━━━━━━━━━━━━━━━"
-        return summary
-    except Exception as e:
-        print(f"Error generating summary: {e}")
-        return None
+        if not last_3: return None
+        summary = "⚠️ *ERROR SUMMARY*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        for err in last_3: summary += f"• `{escape_code(err)}` \n"
+        return summary + "━━━━━━━━━━━━━━━━━━━━━━━━"
+    except: return None
 
 def record_history(device, user, status, artifacts=None):
     history_file = os.path.expanduser("~/build_history.json")
-    record = {
-        "device": device,
-        "user": user,
-        "status": status,
-        "timestamp": int(time.time()),
-        "artifacts": artifacts or {}
-    }
-    
+    record = {"device": device, "user": user, "status": status, "timestamp": int(time.time()), "artifacts": artifacts or {}}
     try:
-        history = []
-        if os.path.exists(history_file):
-            with open(history_file, 'r') as f:
-                history = json.load(f)
-        
+        history = json.load(open(history_file)) if os.path.exists(history_file) else []
         history.append(record)
-        
-        with open(history_file, 'w') as f:
-            json.dump(history, f, indent=4)
-    except Exception as e:
-        print(f"Error recording history: {e}")
+        json.dump(history, open(history_file, 'w'), indent=4)
+    except: pass
 
 def create_telegram_link(chat_id, topic_id, message_id):
-    # Remove -100 prefix for supergroup links
-    clean_chat_id = str(chat_id)
-    if clean_chat_id.startswith("-100"):
-        clean_chat_id = clean_chat_id[4:]
-    
-    # Handle 'none' or empty topic IDs for channels
-    if topic_id and str(topic_id).lower() != "none" and str(topic_id).strip() != "":
-        return f"https://t.me/c/{clean_chat_id}/{topic_id}/{message_id}"
-    
-    return f"https://t.me/c/{clean_chat_id}/{message_id}"
+    cid = str(chat_id).replace("-100", "")
+    if topic_id and str(topic_id).lower() != "none" and str(topic_id).strip():
+        return f"https://t.me/c/{cid}/{topic_id}/{message_id}"
+    return f"https://t.me/c/{cid}/{message_id}"
 
 def main():
     parser = argparse.ArgumentParser()
@@ -164,29 +84,23 @@ def main():
     parser.add_argument('--gms', required=True)
     parser.add_argument('--user', required=True)
     parser.add_argument('--chat-id', required=True)
-    parser.add_argument('--topic-builder', required=True, help="Topic for main notifications")
-    parser.add_argument('--topic-error-logs', required=True, help="Topic for Error Logs")
-    parser.add_argument('--topic-release-json', required=True, help="Topic for Release JSONs")
+    parser.add_argument('--topic-builder', required=True)
+    parser.add_argument('--topic-error-logs', required=True)
+    parser.add_argument('--topic-release-json', required=True)
     parser.add_argument('--token', required=True)
-    parser.add_argument('--build-url', required=True, help="Jenkins Build URL")
-    parser.add_argument('--run-id', required=True, help="GitHub Run ID")
-    parser.add_argument('--release-status', required=True, help="Release Build (Yes/No)")
-    parser.add_argument('--source-dir', required=True, help="AOSP Source Directory")
-    parser.add_argument('--full-clean', default="No", help="Full Clean (Yes/No)")
-    
+    parser.add_argument('--build-url', required=True)
+    parser.add_argument('--run-id', required=True)
+    parser.add_argument('--release-status', required=True)
+    parser.add_argument('--source-dir', required=True)
+    parser.add_argument('--full-clean', default="No")
     args = parser.parse_args()
-    print(f"[REPORTER] Starting for device {args.device} (Status: {args.status})")
-    print(f"[REPORTER] Target Chat ID: {args.chat_id}")
-    
+
     bot = TelegramBot(args.token)
-    workspace = os.environ.get('WORKSPACE') or os.environ.get('GITHUB_WORKSPACE') or '.'
+    workspace = os.environ.get('GITHUB_WORKSPACE', '.')
     out_dir = os.path.join(args.source_dir, 'out', 'target', 'product', args.device)
     msg_id_file = os.path.join(workspace, ".build_msg_id")
-
-    # Always use Tag for User to notify maintainer
     user_display = f"@{escape_markdown_v2(args.user)}"
 
-    # Minimalist Info Block (Premium Style)
     info_block = (
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"├ 📱 *Device*  : `{escape_code(args.device)}`\n"
@@ -196,361 +110,130 @@ def main():
         f"━━━━━━━━━━━━━━━━━━━━━━━━"
     )
 
-    # Connect to Redis for status reporting
-    redis_url = os.environ.get("REDIS_URL")
     redis_client = None
-    if redis_url:
-        try:
-            redis_client = redis.from_url(redis_url, decode_responses=True)
-        except Exception as e:
-            print(f"Redis connection failed: {e}")
+    if os.environ.get("REDIS_URL"):
+        try: redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
+        except: pass
 
-    def update_redis_status(status_str, progress_str=None):
+    def update_redis(s, p=None):
         if not redis_client: return
-        data = {
-            "status": status_str,
-            "device": args.device,
-            "type": args.build_type,
-            "gms": args.gms,
-            "user": args.user,
-            "url": args.build_url,
-            "run_id": args.run_id,
-            "updated_at": int(time.time())
-        }
-        if progress_str:
-            data["progress"] = progress_str
-        
+        d = {"status": s, "device": args.device, "type": args.build_type, "gms": args.gms, "user": args.user, "url": args.build_url, "run_id": args.run_id, "updated_at": int(time.time())}
+        if p: d["progress"] = p
         try:
-            redis_client.set(f"build_status:{args.device}", json.dumps(data), ex=86400) # Expire in 24h
-            # Also set a global "active" pointer for /status without args
+            redis_client.set(f"build_status:{args.device}", json.dumps(d), ex=86400)
             redis_client.set("active_build_device", args.device, ex=86400)
-        except Exception as e:
-            print(f"Redis update failed: {e}")
+        except: pass
 
-    # --- LOGIC HANDLER ---
-    
-    # Update Redis Status for all states
-    status_map = {
-        'started': 'Initializing',
-        'syncing': 'Syncing Source',
-        'building': 'Starting Build',
-        'success': 'Completed',
-        'failure': 'Failed',
-        'aborted': 'Aborted'
-    }
-    if args.status in status_map:
-        update_redis_status(status_map[args.status])
+    s_map = {'started': 'Initializing', 'syncing': 'Syncing Source', 'building': 'Starting Build', 'success': 'Completed', 'failure': 'Failed', 'aborted': 'Aborted'}
+    if args.status in s_map: update_redis(s_map[args.status])
 
-    # 0. MONITORING (Looping Progress Bar)
     if args.status == 'monitoring':
-        progress_file = os.path.join(workspace, "progress.txt")
-        if not os.path.exists(msg_id_file):
-            print("[MONITOR] No message ID found. Exiting.")
-            return
-
-        with open(msg_id_file, 'r') as f:
-            msg_id = f.read().strip()
-        
-        if not msg_id: return
-
-        print("[MONITOR] Starting progress loop...")
+        if not os.path.exists(msg_id_file): return
+        msg_id = open(msg_id_file).read().strip()
         last_text = ""
-        
         while True:
-            # Default text
-            progress_display = "`Preparing Build System\\.\\.\\.`"
-            progress_for_redis = "Preparing"
-            
-            if os.path.exists(progress_file):
+            prog, prog_redis = "`Preparing...`", "Preparing"
+            p_file = os.path.join(workspace, "progress.txt")
+            if os.path.exists(p_file):
                 try:
-                    # Efficiently get last line
-                    with open(progress_file, 'rb') as f:
-                        try:
-                            f.seek(-1024, os.SEEK_END)
-                        except OSError: pass # File too small
-                        last_line = f.readlines()[-1].decode().strip()
-                        
-                        parts = last_line.split(',')
-                        if len(parts) >= 3:
-                            pct = int(parts[0])
-                            counts = parts[1]
-                            desc = parts[2].lower()
-                            
-                            # Check for Signing/Packaging (Text Only, No Pct)
-                            if any(x in desc for x in ["signing target files", "generating ota zip", "generating json"]):
-                                clean_desc = desc.replace('.', '').strip().title()
-                                progress_display = f"⚙️ `{escape_code(clean_desc)}\\.\\.\\.`"
-                                progress_for_redis = clean_desc
-                            # Check for Bootstrap/Setup Phase
-                            elif re.search(r"bootstrap|analyzing|initializing|including|finishing|writing packaging|writing legacy", desc):
-                                # Text Mode (No Bar)
-                                clean_desc = desc.strip()[:25]
-                                progress_display = f"🧬 `{escape_code(clean_desc)}\\.\\.\\. ({pct}%)`"
-                                progress_for_redis = f"{clean_desc} ({pct}%)"
-                            else:
-                                # Ninja Build Mode (With Bar)
-                                filled = int(pct / 10)
-                                empty = 10 - filled
-                                bar = "▰" * filled + "▱" * empty
-                                progress_display = (
-                                    f"🚀 *LIVE MONITORING*\n"
-                                    f"├ `[{bar}]` {pct}%\n"
-                                    f"└ *Jobs* : `{escape_code(counts)}`"
-                                )
-                                progress_for_redis = f"{pct}% ({counts})"
+                    line = open(p_file).readlines()[-1].strip()
+                    parts = line.split(',')
+                    if len(parts) >= 3:
+                        pct, counts, desc = int(parts[0]), parts[1], parts[2].lower()
+                        if any(x in desc for x in ["signing", "ota zip", "json"]):
+                            prog = f"⚙️ `{escape_code(desc.title())}...`"
+                            prog_redis = desc.title()
+                        elif re.search(r"bootstrap|analyzing|initializing", desc):
+                            prog = f"🧬 `{escape_code(desc[:25])}... ({pct}%)`"
+                            prog_redis = f"{desc[:25]} ({pct}%)"
+                        else:
+                            bar = "▰" * (pct // 10) + "▱" * (10 - (pct // 10))
+                            prog = f"🚀 *LIVE MONITORING*\n├ `[{bar}]` {pct}%\n└ *Jobs* : `{escape_code(counts)}`"
+                            prog_redis = f"{pct}% ({counts})"
                 except: pass
-            
-            update_redis_status("Building", progress_for_redis)
-
-            # Dynamic Header
-            desc_lower = desc.lower() if 'desc' in locals() else ""
-            if "signing target files" in desc_lower:
-                header = "🔐 *SIGNING BUILD*"
-            elif "generating ota zip" in desc_lower or "generating json" in desc_lower:
-                header = "📦 *PACKAGING OTA*"
-            else:
-                header = "🔨 *BUILDING ROM*"
-
-            new_text = f"{header}\n{info_block}\n\n{progress_display}\n\n📊 [VIEW RUN]({args.build_url})"
-            
+            update_redis("Building", prog_redis)
+            header = "🔐 *SIGNING*" if "signing" in (locals().get('desc', '')) else "📦 *PACKAGING*" if "ota zip" in (locals().get('desc', '')) else "🔨 *BUILDING*"
+            new_text = f"{header}\n{info_block}\n\n{prog}\n\n📊 [VIEW RUN]({args.build_url})"
             if new_text != last_text:
                 try:
                     bot.edit_message(args.chat_id, msg_id, new_text, parse_mode='MarkdownV2')
                     last_text = new_text
                 except: pass
-            
-            time.sleep(10) # Increased sleep to 10s for better performance
+            time.sleep(10)
         return
 
-    # 1. FINAL STATUS CLEANUP (Success / Failure / Aborted)
     if args.status in ['success', 'failure', 'aborted']:
         if redis_client:
             try:
                 redis_client.delete(f"build_status:{args.device}")
-                if redis_client.get("active_build_device") == args.device:
-                    redis_client.delete("active_build_device")
+                if redis_client.get("active_build_device") == args.device: redis_client.delete("active_build_device")
             except: pass
-
         if os.path.exists(msg_id_file):
             try:
-                with open(msg_id_file, 'r') as f:
-                    old_mid = f.read().strip()
-                if old_mid:
-                    bot.delete_message(args.chat_id, old_mid)
+                mid = open(msg_id_file).read().strip()
+                bot.delete_message(args.chat_id, mid)
                 os.remove(msg_id_file)
             except: pass
 
-    # 2. ACTIONS
     if args.status == 'started':
         msg = f"🚀 *BUILD INITIALIZED*\n{info_block}\n\n📊 [VIEW RUN]({args.build_url})"
         resp = bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2')
-        if resp and 'result' in resp:
-            with open(msg_id_file, 'w') as f:
-                f.write(str(resp['result']['message_id']))
-        return
-
-    if args.status == 'aborted':
+        if resp and 'result' in resp: open(msg_id_file, 'w').write(str(resp['result']['message_id']))
+    elif args.status == 'aborted':
         record_history(args.device, args.user, "ABORTED")
         bot.send_message(args.chat_id, f"🛑 *BUILD ABORTED*\n{info_block}\n\n📊 [VIEW RUN]({args.build_url})", topic_id=args.topic_builder, parse_mode='MarkdownV2')
-        return
-
-    # --- FAILURE ---
-    if args.status == 'failure':
-        print("Handling Build Failure...")
-        log_link = "Not Available"
-        
-        # 1. Upload Log to Error Logs Topic
-        # Prioritize out/error.log (Root of out)
-        error_log_root = os.path.join(args.source_dir, 'out', 'error.log')
-        sign_log = os.path.join(workspace, 'sign.log')
-        build_log = os.path.join(workspace, 'build.log')
-        sync_log = os.path.join(workspace, 'sync.log')
-        
-        log_file_to_upload = None
-        log_caption = f"❌ Error Log \\- {escape_markdown_v2(args.device)}"
-        
-        # Priority 1: Signing Log (If failed during signing step)
-        if os.path.exists(sign_log):
-            print("Found sign.log. Tailing it...")
-            temp_log = "sign_failure_tail.txt"
-            with open(temp_log, 'w') as f:
-                f.write(get_file_tail(sign_log, 200))
-            log_file_to_upload = temp_log
-            log_caption = f"❌ Signing Log \\- {escape_markdown_v2(args.device)}"
-
-        # Priority 2: Standard Error Log
-        elif os.path.exists(error_log_root):
-            print(f"Found error.log at: {error_log_root}")
-            log_file_to_upload = error_log_root
-            
-        # Priority 3: Build Log (Build Failure)
-        elif os.path.exists(build_log):
-            print("error.log not found, found build.log. Tailing it...")
-            temp_log = "build_failure_tail.txt"
-            with open(temp_log, 'w') as f:
-                f.write(get_file_tail(build_log, 200))
-            log_file_to_upload = temp_log
-            log_caption = f"❌ Build Log \\- {escape_markdown_v2(args.device)}"
-        
-        # Priority 4: Sync Log (Sync Failure)
-        elif os.path.exists(sync_log):
-             print("error.log and build.log not found, found sync.log. Tailing it...")
-             temp_log = "sync_failure_tail.txt"
-             with open(temp_log, 'w') as f:
-                 f.write(get_file_tail(sync_log, 200))
-             log_file_to_upload = temp_log
-             log_caption = f"❌ Sync Log \\- {escape_markdown_v2(args.device)}"
-        
-        error_summary = ""
-        if log_file_to_upload:
-            error_summary = get_error_summary(log_file_to_upload) or ""
-            resp = bot.send_document(args.chat_id, log_file_to_upload, caption=log_caption, topic_id=args.topic_error_logs, parse_mode='MarkdownV2')
+    elif args.status == 'failure':
+        log_link, log_file = "Not Available", None
+        paths = [os.path.join(args.source_dir, 'out', 'error.log'), os.path.join(workspace, 'sign.log'), os.path.join(workspace, 'build.log'), os.path.join(workspace, 'sync.log')]
+        for p in paths:
+            if os.path.exists(p):
+                log_file = p
+                break
+        summary = get_error_summary(log_file) or ""
+        if log_file:
+            resp = bot.send_document(args.chat_id, log_file, caption=f"❌ Error Log - {args.device}", topic_id=args.topic_error_logs)
             if resp and 'result' in resp:
-                msg_id = resp['result']['message_id']
-                log_link = f"[View Log File]({create_telegram_link(args.chat_id, args.topic_error_logs, msg_id)})"
-            
-            # Clean up temp
-            if log_file_to_upload in ["build_failure_tail.txt", "sync_failure_tail.txt", "sign_failure_tail.txt"]:
-                os.remove(log_file_to_upload)
-
+                log_link = f"[View Log]({create_telegram_link(args.chat_id, args.topic_error_logs, resp['result']['message_id'])})"
         record_history(args.device, args.user, "FAILURE")
-        # 2. Send Notification to Builder Topic
-        msg = (
-            f"❌ *BUILD FAILED*\n"
-            f"{info_block}\n\n"
-        )
-        if error_summary:
-            msg += f"{error_summary}\n\n"
-            
-        msg += (
-            f"📋 *Log* : {log_link}\n"
-            f"📊 [VIEW RUN]({args.build_url})"
-        )
+        msg = f"❌ *BUILD FAILED*\n{info_block}\n\n{summary}\n\n📋 *Log* : {log_link}\n📊 [VIEW RUN]({args.build_url})"
         bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2')
-        return
-
-    # --- SUCCESS ---
-    if args.status == 'success':
-        print("Handling Build Success...")
-        
-        # Wait for filesystem sync
+    elif args.status == 'success':
         time.sleep(10)
-        
         rom_file = None
-        build_log_path = os.path.join(workspace, "build.log")
-        
-        # Extract path directly from terminal output log (Surgical & Reliable)
-        if os.path.exists(build_log_path):
-            print(f"Reading {build_log_path} to find package path...")
-            try:
-                with open(build_log_path, "r", errors="ignore") as f:
-                    lines = f.readlines()
-                    for line in reversed(lines):
-                        clean_line = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
-                        if "Package Complete:" in clean_line:
-                            path_found = clean_line.split("Package Complete:")[-1].strip()
-                            
-                            # Resolve absolute path
-                            if not os.path.isabs(path_found):
-                                potential_path = os.path.join(args.source_dir, path_found)
-                                if os.path.exists(potential_path):
-                                    path_found = potential_path
-                            
-                            if os.path.exists(path_found):
-                                print(f"✅ Found exact package path via log: {path_found}")
-                                rom_file = path_found
-                                break
-            except Exception as e:
-                print(f"Error parsing log: {e}")
-
+        build_log = os.path.join(workspace, "build.log")
+        if os.path.exists(build_log):
+            for line in reversed(open(build_log).readlines()):
+                if "Package Complete:" in line:
+                    path = line.split("Package Complete:")[-1].strip()
+                    if os.path.exists(path): rom_file = path
+                    elif os.path.exists(os.path.join(args.source_dir, path)): rom_file = os.path.join(args.source_dir, path)
+                    if rom_file: break
         if not rom_file:
-            print(f"❌ Error: 'Package Complete:' path not found in {build_log_path}")
-            bot.send_message(args.chat_id, f"⚠️ **Build Success but Artifact Not Found**\nCould not extract `Package Complete` path from logs.", topic_id=args.topic_builder)
+            bot.send_message(args.chat_id, "⚠️ **Success but Artifact Not Found**", topic_id=args.topic_builder)
             return
-        
-        rom_name = os.path.basename(rom_file)
-        
-        # Upload GoFile
-        gofile_link = upload_to_gofile(rom_file) or "Upload Failed"
-        
-        # --- EXTRA ARTIFACTS ---
-        # We still use out_dir to find images (boot, recovery, etc.)
-        uploaded_extras = {} # Name -> Link
-        
-        # Common images to look for
-        target_imgs = ["boot.img", "recovery.img", "vendor_boot.img", "init_boot.img"]
-        
-        for img_name in target_imgs:
-            img_path = os.path.join(out_dir, img_name)
-            if os.path.exists(img_path):
-                print(f"Found extra artifact: {img_name}")
-                u_link = upload_to_gofile(img_path)
-                if u_link:
-                    uploaded_extras[img_name] = u_link
-
-        # Handle Release JSON
+        g_link = upload_to_gofile(rom_file) or "Upload Failed"
+        extras = {}
+        for img in ["boot.img", "recovery.img", "vendor_boot.img", "init_boot.img"]:
+            p = os.path.join(out_dir, img)
+            if os.path.exists(p):
+                link = upload_to_gofile(p)
+                if link: extras[img] = link
         json_url = ""
-        
-        # Determine subdirectory based on GMS variant
-        # Variants: Full, Core, Basic, Vanilla
-        gms_dir = "VANILLA" if args.gms == "Vanilla" else "GMS"
-        
-        # Exact Path: out/target/product/<device>/<GMS or VANILLA>/<device>.json
-        json_file = os.path.join(out_dir, gms_dir, f"{args.device}.json")
-
-        if os.path.exists(json_file):
-            print(f"Found JSON artifact: {json_file}")
-            u_link = upload_to_gofile(json_file)
-            if u_link:
-                json_url = u_link
-                # Just upload to GoFile and include in tree, no separate document send
-        
-        # Final Success Message
-        # Build list of artifact buttons (label, url)
-        buttons = []
-        
-        # Track artifacts for history
-        artifact_history = {
-            "rom": gofile_link,
-            **uploaded_extras
-        }
-        if json_url:
-            artifact_history["ota_json"] = json_url
-        
-        record_history(args.device, args.user, "SUCCESS", artifacts=artifact_history)
-
-        # 1. ROM (Always first, Wide)
-        buttons.append([{"text": "💿 DOWNLOAD ROM ZIP", "url": gofile_link}])
-        
-        # 2. Extras (Grouped in rows of 2 for better layout)
-        extra_items = list(uploaded_extras.items())
-        for i in range(0, len(extra_items), 2):
-            row = []
-            # Item 1
-            name1, link1 = extra_items[i]
-            row.append({"text": f"📥 {name1.upper()}", "url": link1})
-            # Item 2 (if exists)
-            if i + 1 < len(extra_items):
-                name2, link2 = extra_items[i+1]
-                row.append({"text": f"📥 {name2.upper()}", "url": link2})
-            buttons.append(row)
-            
-        # 3. JSON & Build Run
+        gms_p = os.path.join(out_dir, "VANILLA" if args.gms == "Vanilla" else "GMS", f"{args.device}.json")
+        if os.path.exists(gms_p): json_url = upload_to_gofile(gms_p) or ""
+        record_history(args.device, args.user, "SUCCESS", artifacts={"rom": g_link, **extras, "ota_json": json_url})
+        btns = [[{"text": "💿 DOWNLOAD ROM", "url": g_link}]]
+        extra_list = list(extras.items())
+        for i in range(0, len(extra_list), 2):
+            row = [{"text": f"📥 {extra_list[i][0].upper()}", "url": extra_list[i][1]}]
+            if i+1 < len(extra_list): row.append({"text": f"📥 {extra_list[i+1][0].upper()}", "url": extra_list[i+1][1]})
+            btns.append(row)
         last_row = []
-        if json_url:
-            last_row.append({"text": "📄 OTA JSON", "url": json_url})
-        
+        if json_url: last_row.append({"text": "📄 OTA JSON", "url": json_url})
         last_row.append({"text": "📊 VIEW RUN", "url": args.build_url})
-        buttons.append(last_row)
-            
-        reply_markup = {"inline_keyboard": buttons}
-
-        msg = (
-            f"✨ *BUILD COMPLETED SUCCESSFULLY*\n"
-            f"{info_block}\n\n"
-            f"📦 *Artifacts are ready for download below\\:*"
-        )
-        bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2', reply_markup=reply_markup)
+        btns.append(last_row)
+        msg = f"✨ *BUILD COMPLETED SUCCESSFULLY*\n{info_block}\n\n📦 *Artifacts are ready:*"
+        bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2', reply_markup={"inline_keyboard": btns})
 
 if __name__ == "__main__":
     main()

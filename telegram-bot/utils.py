@@ -10,7 +10,6 @@ from functools import partial, wraps
 from dotenv import load_dotenv
 import redis.asyncio as redis
 
-# === CONFIGURATION ===
 logger = logging.getLogger("BotUtils")
 base_dir = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(base_dir, 'private.env'))
@@ -33,7 +32,6 @@ def parse_list(env_str):
     return [int(x.strip()) for x in env_str.split(",") if x.strip().isdigit()]
 
 ADMIN_USER_IDS = parse_list(os.environ.get("ADMIN_USER_IDS", ""))
-TEST_GROUP_ID = int(os.environ.get("TEST_GROUP_ID", "0"))
 
 # GitHub Config
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
@@ -42,7 +40,7 @@ DB_REPO = os.environ.get("DB_REPO", GITHUB_REPO_NAME)
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "actions")
 DB_FILE_PATH = "database.json"
 
-# === CONSTANTS ===
+# Constants
 MAX_QUOTA_USER = 5
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
@@ -56,11 +54,10 @@ RK_PERSIST_USER = "axn:persist:user"
 RK_PERSIST_CHAT = "axn:persist:chat"
 RK_PERSIST_BOT = "axn:persist:bot"
 
-# === REDIS PERSISTENCE FOR TELEGRAM BOT ===
 from telegram.ext import BasePersistence
-from collections import defaultdict
 
 class RedisPersistence(BasePersistence):
+    """Redis-based persistence for Telegram Bot"""
     def __init__(self):
         super().__init__()
         self.store_user_data = True
@@ -128,7 +125,6 @@ class RedisPersistence(BasePersistence):
     async def update_conversation_data(self, name, key, data): pass
     async def flush(self): pass
 
-# === REDIS CLIENT ===
 _redis_pool = None
 
 async def get_redis():
@@ -136,8 +132,6 @@ async def get_redis():
     if _redis_pool is None:
         _redis_pool = redis.from_url(REDIS_URL, decode_responses=True)
     return _redis_pool
-
-# === DATABASE ENGINE (ASYNC & FASTER) ===
 
 def get_github_headers():
     return {
@@ -147,7 +141,7 @@ def get_github_headers():
     }
 
 async def fetch_db_from_github():
-    """Fetch DB from GitHub and populate Redis"""
+    """Sync database from GitHub to Redis"""
     url = f"https://api.github.com/repos/{DB_REPO}/contents/{DB_FILE_PATH}?ref={GITHUB_BRANCH}"
     async with httpx.AsyncClient() as client:
         try:
@@ -158,50 +152,35 @@ async def fetch_db_from_github():
                 db = json.loads(content)
                 
                 r = await get_redis()
-                # Use pipeline for atomic multi-set
                 pipe = r.pipeline()
                 
-                # Clear and repopulate chats
                 pipe.delete(RK_CHATS)
                 chats = db.get("allowed_chats", [])
-                if chats:
-                    pipe.sadd(RK_CHATS, *chats)
+                if chats: pipe.sadd(RK_CHATS, *chats)
                 
-                # Repopulate users
                 pipe.delete(RK_USERS)
                 users = db.get("users", {})
                 for uid, udata in users.items():
                     pipe.hset(RK_USERS, uid, json.dumps(udata))
                 
-                # Save SHA for next commit
                 pipe.hset(RK_CONFIG, "db_sha", data['sha'])
                 await pipe.execute()
-                logger.info(f"Redis cache refreshed from GitHub (SHA: {data['sha'][:7]})")
+                logger.info("Redis cache refreshed from GitHub")
                 return db
-            else:
-                logger.error(f"GitHub Fetch Failed: Status {resp.status_code}")
         except Exception as e:
-            logger.error(f"GitHub Fetch Exception: {e}")
+            logger.error(f"GitHub Fetch Failed: {e}")
     return None
 
 async def save_db_to_github(commit_message="database: update from bot"):
-    """Background task to sync Redis state back to GitHub"""
+    """Sync Redis state to GitHub database.json"""
     r = await get_redis()
-    
-    # 1. Reconstruct DB from Redis
     chats = await r.smembers(RK_CHATS)
     raw_users = await r.hgetall(RK_USERS)
     users = {uid: json.loads(udata) for uid, udata in raw_users.items()}
     
-    db = {
-        "users": users,
-        "allowed_chats": list(chats)
-    }
-    
-    # 2. Get Current SHA
+    db = {"users": users, "allowed_chats": list(chats)}
     sha = await r.hget(RK_CONFIG, "db_sha")
     
-    # 3. Push to GitHub
     url = f"https://api.github.com/repos/{DB_REPO}/contents/{DB_FILE_PATH}"
     json_str = json.dumps(db, indent=2)
     b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
@@ -211,14 +190,8 @@ async def save_db_to_github(commit_message="database: update from bot"):
         "content": b64_content,
         "branch": GITHUB_BRANCH,
         "sha": sha,
-        "committer": {
-            "name": "github-actions[bot]",
-            "email": "41898282+github-actions[bot]@users.noreply.github.com"
-        },
-        "author": {
-            "name": "github-actions[bot]",
-            "email": "41898282+github-actions[bot]@users.noreply.github.com"
-        }
+        "committer": {"name": "github-actions[bot]", "email": "41898282+github-actions[bot]@users.noreply.github.com"},
+        "author": {"name": "github-actions[bot]", "email": "41898282+github-actions[bot]@users.noreply.github.com"}
     }
     
     async with httpx.AsyncClient() as client:
@@ -229,17 +202,12 @@ async def save_db_to_github(commit_message="database: update from bot"):
                 await r.hset(RK_CONFIG, "db_sha", new_sha)
                 logger.info(f"GitHub backup successful: {commit_message}")
                 return True
-            else:
-                logger.error(f"GitHub Sync Failed: Status {resp.status_code} - {resp.text}")
         except Exception as e:
-            logger.error(f"GitHub Sync Exception: {e}")
+            logger.error(f"GitHub Sync Failed: {e}")
     return False
 
-# === USER & AUTH (O(1) PERFORMANCE) ===
-
 async def is_chat_allowed(chat_id):
-    """Check if chat is approved in O(1) time using Redis Set"""
-    # 1. Check ENV/Static IDs
+    """Check if chat is approved"""
     if TEST_GROUP_ID != 0 and chat_id == TEST_GROUP_ID:
         return True
     
@@ -247,51 +215,42 @@ async def is_chat_allowed(chat_id):
     if chat_id in env_allowed:
         return True
     
-    # 2. Check Redis Set
     r = await get_redis()
     return await r.sismember(RK_CHATS, str(chat_id))
 
 def restricted_command(func):
-    """Decorator to restrict command usage to specific chats (Async Optimized)"""
+    """Decorator to restrict commands to allowed chats"""
     @wraps(func)
     async def wrapper(update, context, *args, **kwargs):
         if not update.effective_chat: return
-        chat_id = update.effective_chat.id
-        if not await is_chat_allowed(chat_id):
+        if not await is_chat_allowed(update.effective_chat.id):
             return
         return await func(update, context, *args, **kwargs)
     return wrapper
 
 async def get_user_data(user_id):
-    """Get user data in O(1) time using Redis Hash"""
     r = await get_redis()
     data = await r.hget(RK_USERS, str(user_id))
     return json.loads(data) if data else None
 
 async def update_user_data(user_id, modifier_func, commit_msg=None):
-    """Atomic Redis update + Background GitHub Sync"""
+    """Update user in Redis + sync to GitHub in background"""
     r = await get_redis()
     uid = str(user_id)
     
-    # 1. Get current data
     raw = await r.hget(RK_USERS, uid)
     data = json.loads(raw) if raw else {"daily_count": 0, "last_build_date": "", "role": ROLE_USER}
     
-    # 2. Modify
-    if not modifier_func(data):
-        return False
+    if not modifier_func(data): return False
     
-    # 3. Save to Redis (Instant)
     await r.hset(RK_USERS, uid, json.dumps(data))
-    
-    # 4. Trigger GitHub Sync in Background
     if commit_msg:
         asyncio.create_task(save_db_to_github(commit_msg))
     
     return True
 
 async def get_quota_status(user_id):
-    """Calculate quota from cached Redis data"""
+    """Returns (role, used, remaining)"""
     user_data = await get_user_data(user_id)
     if not user_data: return None, 0, 0
     
@@ -307,40 +266,24 @@ async def get_quota_status(user_id):
         
     return role, used, max(0, limit - used)
 
-# === FORMATTING UTILS ===
-
 def convert_to_raw_url(url):
-    """
-    Converts standard Git web UI URLs into raw content URLs.
-    Supports GitHub, GitLab, and Bitbucket.
-    """
+    """Converts Git web UI URLs into raw content URLs"""
     if not url: return ""
     url = url.strip()
     
-    # 1. GitHub
     if "github.com" in url:
-        if "raw.githubusercontent.com" in url:
-            return url # Already raw
-        if "/blob/" in url:
-            return url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
-        if "/raw/" in url:
-            return url.replace("github.com", "raw.githubusercontent.com").replace("/raw/", "/")
+        if "raw.githubusercontent.com" in url: return url
+        if "/blob/" in url: return url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+        if "/raw/" in url: return url.replace("github.com", "raw.githubusercontent.com").replace("/raw/", "/")
         
-    # 2. GitLab
     if "gitlab.com" in url:
-        if "/raw/" in url:
-            return url
-        if "/blob/" in url:
-            return url.replace("/blob/", "/raw/")
+        if "/raw/" in url: return url
+        if "/blob/" in url: return url.replace("/blob/", "/raw/")
 
-    # 3. Bitbucket
     if "bitbucket.org" in url:
-        if "/raw/" in url:
-            return url
-        if "/src/" in url:
-            return url.replace("/src/", "/raw/")
+        if "/raw/" in url: return url
+        if "/src/" in url: return url.replace("/src/", "/raw/")
 
-    # 4. GitHub Gist
     if "gist.github.com" in url and "/raw" not in url:
         return url.rstrip("/") + "/raw"
 

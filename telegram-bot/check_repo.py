@@ -2,7 +2,6 @@ import os
 from github import Github, Auth
 from dotenv import load_dotenv
 
-# Load config
 base_dir = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(base_dir, 'private.env'))
 

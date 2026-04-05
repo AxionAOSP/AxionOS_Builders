@@ -13,23 +13,20 @@ from datetime import datetime, timezone, timedelta
 from utils import (
     get_quota_status, get_user_data, update_user_data, convert_to_raw_url,
     MAX_QUOTA_USER, ROLE_ADMIN, ROLE_OWNER, restricted_command,
-    get_github_headers, get_redis
+    get_github_headers, get_redis, RK_CONFIG
 )
 
-# Env Vars
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO_NAME = os.environ.get("GITHUB_REPO_NAME")
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "actions")
 WORKFLOW_ID = "axion_build.yml"
 
-# === CONSTANTS ===
 BUILD_OPTIONS = {
     'RELEASETYPE': ['user', 'userdebug', 'eng'],
     'GMS_VARIANT': ['Core', 'Pico', 'Vanilla'],
     'FULLCLEAN': ['No', 'Yes']
 }
 
-# === KEYBOARDS ===
 def get_build_menu_keyboard(params):
     def btn(l, k): return InlineKeyboardButton(f"{l}: {params[k]}", callback_data=f"build_set:{k}")
     return InlineKeyboardMarkup([
@@ -38,118 +35,91 @@ def get_build_menu_keyboard(params):
         [InlineKeyboardButton("✅ START", callback_data="build_action:start"), InlineKeyboardButton("❌ CANCEL", callback_data="build_action:cancel")]
     ])
 
-# === GITHUB API (ASYNC) ===
-
 async def trigger_workflow(inputs):
+    """Triggers GitHub Actions workflow"""
     url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/actions/workflows/{WORKFLOW_ID}/dispatches"
     payload = {"ref": GITHUB_BRANCH, "inputs": inputs}
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(url, headers=get_github_headers(), json=payload, timeout=20)
-            if resp.status_code != 204:
-                print(f"[GH ERROR] Trigger failed with status {resp.status_code}: {resp.text}")
-                return False
-            return True
+            return resp.status_code == 204
         except Exception as e:
             print(f"[GH ERROR] Trigger failed: {e}")
             return False
 
 async def get_workflow_runs(status=None):
+    """Fetches recent workflow runs"""
     url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/actions/runs"
     params = {"branch": GITHUB_BRANCH, "per_page": 15}
     if status: params["status"] = status
-    
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(url, headers=get_github_headers(), params=params, timeout=15)
-            if resp.status_code == 200:
-                return resp.json().get("workflow_runs", [])
-        except Exception as e:
-            print(f"[GH ERROR] Fetch runs failed: {e}")
+            if resp.status_code == 200: return resp.json().get("workflow_runs", [])
+        except Exception as e: print(f"[GH ERROR] Fetch runs failed: {e}")
     return []
 
 async def cancel_workflow_run(run_id):
+    """Cancels a workflow run"""
     url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/actions/runs/{run_id}/cancel"
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(url, headers=get_github_headers(), timeout=15)
             return resp.status_code == 202
-        except Exception as e:
-            print(f"[GH ERROR] Cancel failed: {e}")
+        except Exception as e: print(f"[GH ERROR] Cancel failed: {e}")
             return False
-
-# === HANDLERS ===
 
 @restricted_command
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Shows real-time build status from Redis, with automatic GitHub-based device detection."""
+    """Shows real-time build progress from Redis"""
     r = await get_redis()
     chat_id = update.effective_chat.id
     
-    # 1. Cleanup old message
     last_mid = context.chat_data.get("last_status_mid")
     if last_mid:
         try: await context.bot.delete_message(chat_id, last_mid)
         except: pass
 
-    # 2. Identify Device
-    device = context.args[0] if context.args else None
+    device = context.args[0] if context.args else await r.get("active_build_device")
     
     if not device:
-        # Strategy A: Check Redis Pointer
-        device = await r.get("active_build_device")
-        
-        # Strategy B: Check GitHub Action Queue if pointer is missing
-        if not device:
-            runs = await get_workflow_runs(status="in_progress")
-            if runs:
-                # Parse device from run title: "DEVICE (TYPE) | User: ..."
-                title = runs[0].get("display_title", "") or runs[0].get("name", "")
-                if "(" in title:
-                    device = title.split("(")[0].strip()
+        runs = await get_workflow_runs(status="in_progress")
+        if runs:
+            title = runs[0].get("display_title", "") or runs[0].get("name", "")
+            if "(" in title: device = title.split("(")[0].strip()
 
     if not device:
-        msg = await update.message.reply_text("✅ **No active builds found.**\nUse `/queue` for system-wide status.", parse_mode="Markdown")
+        msg = await update.message.reply_text("✅ **No active builds.**\nUse `/queue` for system status.", parse_mode="Markdown")
         context.chat_data["last_status_mid"] = msg.message_id
         return
 
-    # 3. Fetch Status Data
     raw_data = await r.get(f"build_status:{device}")
     if not raw_data:
-        msg = await update.message.reply_text(f"❌ No live progress data for `{device}`.\n_The build may have just started or failed to connect to Redis._", parse_mode="Markdown")
+        msg = await update.message.reply_text(f"❌ No live data for `{device}`.", parse_mode="Markdown")
         context.chat_data["last_status_mid"] = msg.message_id
         return
 
     data = json.loads(raw_data)
-    status = data.get("status", "Unknown")
-    progress_raw = data.get("progress", "Starting...")
-    
-    # Progress Bar Logic
-    progress_display = progress_raw
-    if "%" in progress_raw:
+    progress_display = data.get("progress", "Starting...")
+    if "%" in progress_display:
         try:
-            pct_val = int(progress_raw.split("%")[0].strip())
-            filled = int(pct_val / 10)
-            bar = "▰" * filled + "▱" * (10 - filled)
-            progress_display = f"<code>[{bar}]</code> {progress_raw}"
+            pct = int(progress_display.split("%")[0].strip())
+            bar = "▰" * (pct // 10) + "▱" * (10 - (pct // 10))
+            progress_display = f"<code>[{bar}]</code> {progress_display}"
         except: pass
     
     diff = int(time.time()) - data.get("updated_at", 0)
-    
     msg_text = (
-        f"<b>✨ ACTIVE BUILD STATUS</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>✨ ACTIVE BUILD STATUS</b>\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>📱 Device</b>   : <code>{device}</code>\n"
-        f"<b>🚦 Status</b>   : <code>{status}</code>\n"
+        f"<b>🚦 Status</b>   : <code>{data.get('status', 'Unknown')}</code>\n"
         f"<b>📊 Progress</b> : {progress_display}\n"
         f"<b>🧬 Variant</b>  : <code>{data.get('gms', 'N/A')}</code>\n"
         f"<b>👤 User</b>     : @{html.escape(data.get('user', 'Unknown'))}\n"
         f"<b>🆔 Run ID</b>   : <code>{data.get('run_id', 'N/A')}</code>\n"
         f"<b>⏱️ Updated</b>  : <code>{diff}s ago</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔗 <a href='{data.get('url', '#')}'><b>VIEW LIVE LOGS</b></a>"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n🔗 <a href='{data.get('url', '#')}'><b>VIEW LIVE LOGS</b></a>"
     )
-    
     new_msg = await update.message.reply_text(msg_text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     context.chat_data["last_status_mid"] = new_msg.message_id
 
@@ -161,203 +131,132 @@ async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def generate_queue_message():
     runs = await get_workflow_runs()
-    msg = "<b>🔭 SYSTEM STATUS</b>\n<code>GitHub Actions Queue</code>\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    msg = "<b> Telescope SYSTEM STATUS</b>\n<code>GitHub Queue</code>\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     active_found = False
 
     def parse_run_info(run):
-        u_name = run.get("actor", {}).get("login", "Unknown")
-        dev_name = "Unknown"
-        
+        u_name, dev_name = "Unknown", "Unknown"
         name = run.get("display_title", "") or run.get("name", "")
-        # Format: "DEVICE (TYPE) | User: Username (123456)"
         if "User: " in name:
             try:
-                # Extract Device (everything before the first '(')
                 dev_name = name.split("(")[0].strip()
-                # Extract Username
-                parts = name.split("User: ")[1].rsplit(" (", 1)
-                u_name = parts[0]
+                u_name = name.split("User: ")[1].rsplit(" (", 1)[0]
             except: pass
         return html.escape(u_name), html.escape(dev_name)
 
-    # Filter only relevant statuses
     for run in runs:
         if run['status'] not in ["in_progress", "queued", "waiting", "pending"]: continue
-        
         active_found = True
         username, device = parse_run_info(run)
         icon = "🟢" if run['status'] == "in_progress" else "🔵"
         label = "RUNNING" if run['status'] == "in_progress" else "QUEUED"
         
-        # Calculate Time for running builds
         time_str = ""
         if run['status'] == "in_progress":
             try:
-                # Use run_started_at if available, fallback to created_at
                 start_raw = run.get("run_started_at") or run.get("created_at")
                 if start_raw:
                     start_dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
-                    diff = datetime.now(timezone.utc) - start_dt
-                    mins = int(diff.total_seconds() / 60)
-                    if mins >= 60:
-                        time_str = f"\n├ <b>Time</b> : <code>{mins // 60}h {mins % 60}m</code>"
-                    else:
-                        time_str = f"\n├ <b>Time</b> : <code>{mins}m</code>"
+                    mins = int((datetime.now(timezone.utc) - start_dt).total_seconds() / 60)
+                    time_str = f"\n├ <b>Time</b> : <code>{mins // 60}h {mins % 60}m</code>" if mins >= 60 else f"\n├ <b>Time</b> : <code>{mins}m</code>"
             except: pass
 
         msg += (
-            f"{icon} <b>{label} BUILD</b>\n"
-            f"├ <b>By</b> : <code>{username}</code>\n"
+            f"{icon} <b>{label} BUILD</b>\n├ <b>By</b> : <code>{username}</code>\n"
             f"├ <b>Device</b> : <code>{device}</code>\n"
             f"├ <b>RunID</b> : <code>{run['id']}</code>{time_str}\n"
             f"└ 🔗 <a href='{run['html_url']}'><b>VIEW LOGS</b></a>\n\n"
         )
 
-    if not active_found:
-        msg += "✅ <b>SYSTEM IDLE</b>\nReady to build."
-
+    if not active_found: msg += "✅ <b>SYSTEM IDLE</b>\nReady to build."
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Refresh", callback_data="build_status:refresh")]])
     return msg, kb
 
 @restricted_command
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
     if not context.args:
-        await update.message.reply_text("⚠️ Usage: `/cancel <RunID>`", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ Usage: `/cancel <RunID>`")
         return
-
     run_id = context.args[0]
     status_msg = await update.message.reply_text(f"⏳ Cancelling Run {run_id}...")
-    
-    success = await cancel_workflow_run(run_id)
-    if success:
+    if await cancel_workflow_run(run_id):
         await status_msg.edit_text(f"🛑 **Run {run_id} Cancelled.**", parse_mode="Markdown")
-    else:
-        await status_msg.edit_text("❌ Failed to cancel. Check Run ID.")
+    else: await status_msg.edit_text("❌ Failed to cancel.")
 
 @restricted_command
 async def quota_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    role, used, remaining = await get_quota_status(uid)
-    
+    role, used, remaining = await get_quota_status(update.effective_user.id)
     if not role:
         await update.message.reply_text("⛔ Not registered.")
         return
-
-    now = datetime.now(timezone.utc)
-    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    diff = tomorrow - now
-    h, m = diff.seconds // 3600, (diff.seconds // 60) % 60
-    
+    h, m = ((datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) - datetime.now(timezone.utc)).seconds // 3600, ((datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) - datetime.now(timezone.utc)).seconds // 60 % 60
     limit_str = "Unlimited" if role in [ROLE_ADMIN, ROLE_OWNER] else str(used + remaining)
-    
     msg = (
-        f"📊 <b>Quota Status</b>\n"
-        f"├ User: <code>{html.escape(update.effective_user.first_name)}</code>\n"
-        f"├ Role: <code>{role.upper()}</code>\n"
-        f"├ Usage: <code>{used}/{limit_str}</code>\n"
-        f"└ Reset: <code>{h}h {m}m</code>"
+        f"📊 <b>Quota Status</b>\n├ User: <code>{html.escape(update.effective_user.first_name)}</code>\n"
+        f"├ Role: <code>{role.upper()}</code>\n├ Usage: <code>{used}/{limit_str}</code>\n└ Reset: <code>{h}h {m}m</code>"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 @restricted_command
 async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    role, _, rem = await get_quota_status(uid)
-    
+    role, _, rem = await get_quota_status(update.effective_user.id)
     if role is None:
-        await update.message.reply_text("⛔ Unauthorized. Use /adduser first.")
+        await update.message.reply_text("⛔ Unauthorized.")
         return
     if role not in [ROLE_ADMIN, ROLE_OWNER] and rem <= 0:
         await update.message.reply_text("⛔ Quota Exceeded.")
         return
-
     if not context.args:
-        await update.message.reply_text("⚠️ Usage: `/build <device> [manifest_url]`\n\nExample:\n- `/build begonia` (Uses default manifest repo)\n- `/build begonia https://link.to/custom.xml` (Uses custom manifest)", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ Usage: `/build <device> [manifest_url]`")
         return
 
     dev = context.args[0]
-    
-    # Strategy: 1. Use provided URL, 2. Fallback to default AxionAOSP manifest repo
-    if len(context.args) >= 2:
-        url = convert_to_raw_url(context.args[1])
-        custom_manifest = True
-    else:
-        # Default: https://github.com/AxionAOSP/device_manifests/raw/main/{device}.xml
-        url = f"https://github.com/AxionAOSP/device_manifests/raw/main/{dev}.xml"
-        custom_manifest = False
-    
-    status_msg = await update.message.reply_text(f"🔎 Validating Manifest for `{dev}`...")
+    url = convert_to_raw_url(context.args[1]) if len(context.args) >= 2 else f"https://github.com/AxionAOSP/device_manifests/raw/main/{dev}.xml"
+    status_msg = await update.message.reply_text(f"🔎 Validating Manifest...")
     
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(url, timeout=10, follow_redirects=True)
             if resp.status_code != 200:
-                if not custom_manifest:
-                    err_msg = (
-                        f"❌ **Manifest Not Found**\n\n"
-                        f"Device `{dev}` does not have a manifest in the default repository:\n"
-                        f"🔗 [View Repository](https://github.com/AxionAOSP/device_manifests)\n\n"
-                        f"Please use: `/build {dev} <custom_url>`"
-                    )
-                else:
-                    err_msg = f"❌ **URL Error:** Received status `{resp.status_code}` from the provided link."
-                
-                await status_msg.edit_text(err_msg, parse_mode="Markdown", disable_web_page_preview=True)
+                await status_msg.edit_text("❌ **Manifest Not Found.**", parse_mode="Markdown")
                 return
-            
-            # Basic XML Validation
-            try:
-                root = ET.fromstring(resp.content)
-                if root.tag != "manifest":
-                    await status_msg.edit_text("❌ **Invalid Manifest:** The file exists but is not a valid AOSP manifest XML.", parse_mode="Markdown")
-                    return
-            except ET.ParseError:
-                await status_msg.edit_text("❌ **Parse Error:** The manifest file contains invalid XML syntax.", parse_mode="Markdown")
+            root = ET.fromstring(resp.content)
+            if root.tag != "manifest":
+                await status_msg.edit_text("❌ **Invalid Manifest XML.**", parse_mode="Markdown")
                 return
-
         except Exception as e:
-            await status_msg.edit_text(f"❌ **Validation Failed:** `{str(e)}`", parse_mode="Markdown")
+            await status_msg.edit_text(f"❌ **Validation Failed:** `{e}`", parse_mode="Markdown")
             return
 
     await status_msg.delete()
-    
     params = {
         'DEVICE': dev, 'RELEASETYPE': 'userdebug', 'GMS_VARIANT': 'Core',
         'FULLCLEAN': 'No', 'LOCAL_MANIFEST_URL': url,
         'BUILD_USER': update.effective_user.username or update.effective_user.first_name,
-        'BUILD_USER_ID': str(uid),
+        'BUILD_USER_ID': str(update.effective_user.id),
         'CHAT_ID': str(update.effective_chat.id),
         'TOPIC_ID': str(update.effective_message.message_thread_id or "")
     }
     context.user_data['pending_build'] = params
-    
-    lim_str = "Unlimited" if role in [ROLE_ADMIN, ROLE_OWNER] else f"{rem} left"
     msg = (
-        f"<b>🚀 AXIONOS BUILD SYSTEM</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>📱 Device</b>   : <code>{dev}</code>\n"
-        f"<b>👤 Trigger</b>  : @{html.escape(params['BUILD_USER'])} (<code>{lim_str}</code>)\n"
-        f"<b>📄 Source</b>   : {'Custom URL' if custom_manifest else 'Default Repo'}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"<i>Adjust configuration:</i>"
+        f"<b>🚀 AXIONOS BUILD</b>\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📱 Device</b> : <code>{dev}</code>\n"
+        f"<b>👤 User</b>   : @{html.escape(params['BUILD_USER'])}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n<i>Adjust config:</i>"
     )
     await update.message.reply_text(msg, reply_markup=get_build_menu_keyboard(params), parse_mode=ParseMode.HTML)
 
 async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    data = query.data
-    
-    if data == "build_status:refresh":
+    if query.data == "build_status:refresh":
         msg, kb = await generate_queue_message()
-        try:
-            await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb, disable_web_page_preview=True)
-            await query.answer("Refreshed!")
-        except: await query.answer()
+        try: await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb, disable_web_page_preview=True)
+        except: pass
+        await query.answer("Refreshed!")
         return
 
-    if data.startswith("build_action:"):
-        act = data.split(":")[1]
+    if query.data.startswith("build_action:"):
+        act = query.data.split(":")[1]
         if act == "cancel":
             await query.edit_message_text("❌ <b>Build Cancelled.</b>", parse_mode=ParseMode.HTML)
             context.user_data.pop('pending_build', None)
@@ -366,65 +265,27 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
             if not p:
                 await query.answer("Session Expired", show_alert=True)
                 return
-            
-            # Resolve Output Channel (Automatic)
             r = await get_redis()
-            from utils import RK_CONFIG
             main_chan = await r.hget(RK_CONFIG, "main_output_channel")
-            
-            target_desc = "Current Chat"
             kb = None
-            
             if main_chan:
-                p["CHAT_ID"] = main_chan
-                p["TOPIC_ID"] = "none" # Use 'none' to explicitly disable topics in channel
-                target_desc = f"Channel (ID: <code>{main_chan}</code>)"
-                
-                # Generate a link for the button if it's a channel ID
-                link = None
+                p["CHAT_ID"], p["TOPIC_ID"] = main_chan, "none"
                 if str(main_chan).startswith("-100"):
-                    chan_id_clean = str(main_chan)[4:]
-                    # Appending /1 ensures the chat opens even if it's a private channel
-                    link = f"https://t.me/c/{chan_id_clean}/1"
-                elif str(main_chan).startswith("-"):
-                    # For regular groups, we can only try basic link
-                    link = f"https://t.me/{main_chan}"
-                
-                if link:
-                    kb = InlineKeyboardMarkup([[InlineKeyboardButton("📣 VIEW CHANNEL", url=link)]])
+                    kb = InlineKeyboardMarkup([[InlineKeyboardButton("📣 VIEW CHANNEL", url=f"https://t.me/c/{str(main_chan)[4:]}/1")]])
             
-            await query.edit_message_text(f"⏳ <b>Dispatching Workflow...</b>\nTarget: {target_desc}", parse_mode=ParseMode.HTML)
-            
+            await query.edit_message_text("⏳ <b>Dispatching...</b>", parse_mode=ParseMode.HTML)
             if await trigger_workflow(p):
-                await query.edit_message_text(
-                    f"✅ <b>Build Started Successfully!</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"📱 <b>Device</b> : <code>{p['DEVICE']}</code>\n"
-                    f"🎯 <b>Output</b> : {target_desc}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"<i>The progress dashboard will appear in the target chat shortly.</i>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=kb
-                )
-                
-                # Update Redis Locally (No commit to GitHub to avoid 2 commits)
-                def inc_mod(d):
-                    d["daily_count"] = d.get("daily_count", 0) + 1
-                    d["last_build_date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    return True
-                await update_user_data(query.from_user.id, inc_mod, commit_msg=None)
-            else:
-                await query.edit_message_text("❌ <b>GitHub API Error.</b>\nCheck GITHUB_TOKEN or Actions status.", parse_mode=ParseMode.HTML)
+                await query.edit_message_text(f"✅ <b>Build Started!</b>\nDevice: <code>{p['DEVICE']}</code>", parse_mode=ParseMode.HTML, reply_markup=kb)
+                await update_user_data(query.from_user.id, lambda d: d.update({"daily_count": d.get("daily_count", 0)+1, "last_build_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")}) or True)
+            else: await query.edit_message_text("❌ <b>API Error.</b>", parse_mode=ParseMode.HTML)
+            context.user_data.pop('pending_build', None)
 
-    elif data.startswith("build_set:"):
-        k = data.split(":")[1]
+    elif query.data.startswith("build_set:"):
+        k = query.data.split(":")[1]
         p = context.user_data.get('pending_build')
-        if not p: return
-        
-        opts = BUILD_OPTIONS.get(k)
-        idx = (opts.index(p[k]) + 1) % len(opts)
-        p[k] = opts[idx]
-        
-        try: await query.edit_message_reply_markup(get_build_menu_keyboard(p))
-        except: pass
+        if p:
+            opts = BUILD_OPTIONS[k]
+            p[k] = opts[(opts.index(p[k]) + 1) % len(opts)]
+            try: await query.edit_message_reply_markup(get_build_menu_keyboard(p))
+            except: pass
         await query.answer()
