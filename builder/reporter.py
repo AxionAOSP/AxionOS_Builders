@@ -110,10 +110,9 @@ def main():
         f"━━━━━━━━━━━━━━━━━━━━━━━━"
     )
 
-    redis_client = None
-    if os.environ.get("REDIS_URL"):
-        try: redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
-        except: pass
+    redis_url = os.environ.get("REDIS_URL") or "redis://localhost:6379/0"
+    try: redis_client = redis.from_url(redis_url, decode_responses=True)
+    except: redis_client = None
 
     def update_redis(s, p=None):
         if not redis_client: return

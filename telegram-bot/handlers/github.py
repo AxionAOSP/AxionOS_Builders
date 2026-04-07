@@ -23,14 +23,14 @@ WORKFLOW_ID = "axion_build.yml"
 
 BUILD_OPTIONS = {
     'RELEASETYPE': ['user', 'userdebug', 'eng'],
-    'GMS_VARIANT': ['Core', 'Pico', 'Vanilla'],
+    'GMS_VARIANT': ['GMS', 'Core', 'Vanilla'],
     'FULLCLEAN': ['No', 'Yes']
 }
 
 def get_build_menu_keyboard(params):
     def btn(l, k): return InlineKeyboardButton(f"{l}: {params[k]}", callback_data=f"build_set:{k}")
     return InlineKeyboardMarkup([
-        [btn("Type", "RELEASETYPE"), btn("GMS", "GMS_VARIANT")],
+        [btn("Type", "RELEASETYPE"), btn("Variant", "GMS_VARIANT")],
         [btn("Full Clean", "FULLCLEAN")],
         [InlineKeyboardButton("✅ START", callback_data="build_action:start"), InlineKeyboardButton("❌ CANCEL", callback_data="build_action:cancel")]
     ])
@@ -231,7 +231,7 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await status_msg.delete()
     params = {
-        'DEVICE': dev, 'RELEASETYPE': 'userdebug', 'GMS_VARIANT': 'Core',
+        'DEVICE': dev, 'RELEASETYPE': 'userdebug', 'GMS_VARIANT': 'GMS',
         'FULLCLEAN': 'No', 'LOCAL_MANIFEST_URL': url,
         'BUILD_USER': update.effective_user.username or update.effective_user.first_name,
         'BUILD_USER_ID': str(update.effective_user.id),

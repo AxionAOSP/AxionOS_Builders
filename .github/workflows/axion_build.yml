@@ -28,11 +28,11 @@ on:
       GMS_VARIANT:
         description: 'GMS Variant'
         required: true
-        default: 'Core'
+        default: 'GMS'
         type: choice
         options:
+          - 'GMS'
           - 'Core'
-          - 'Pico'
           - 'Vanilla'
       LOCAL_MANIFEST_URL:
         description: 'URL to local_manifest.xml'
@@ -98,14 +98,13 @@ jobs:
       - name: Setup Environment
         run: |
           echo "AOSP_SOURCE_DIR=$HOME/android/source" >> $GITHUB_ENV
-          echo "WORKSPACE=$GITHUB_WORKSPACE" >> $GITHUB_ENV
 
       - name: Prepare Scripts
         run: |
           chmod +x builder/*.sh
           chmod +x builder/*.py
 
-          rm -f sign.log build.log sync.log progress.txt .quota_exceeded
+          rm -f *.log progress.txt .build_msg_id .quota_exceeded
           rm -f $AOSP_SOURCE_DIR/out/error.log
 
           mkdir -p $AOSP_SOURCE_DIR
@@ -158,7 +157,7 @@ jobs:
           git config --global user.name "Saikrishna1504"
           git config --global user.email "saikrishna26918@gmail.com"
 
-          SYNC_CMD="cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/sync.sh \"$LOCAL_MANIFEST\""
+          SYNC_CMD="export AOSP_MANIFEST_URL=\"$AOSP_MANIFEST_URL\"; export AOSP_MANIFEST_BRANCH=\"$AOSP_MANIFEST_BRANCH\"; cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/sync.sh \"$LOCAL_MANIFEST\""
 
           ${{ github.workspace }}/builder/tmux_runner.sh \
             "axion_build" \
@@ -186,7 +185,7 @@ jobs:
             --source-dir "$AOSP_SOURCE_DIR" &
           MONITOR_PID=$!
 
-          BUILD_CMD="cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/build.sh \"$DEVICE\" \"$RELEASETYPE\" \"$FULLCLEAN\""
+          BUILD_CMD="export GMS_VARIANT=\"$GMS_VARIANT\"; cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/build.sh \"$DEVICE\" \"$RELEASETYPE\" \"$FULLCLEAN\""
 
           if ${{ github.workspace }}/builder/tmux_runner.sh \
             "axion_build" \

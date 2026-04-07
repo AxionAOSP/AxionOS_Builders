@@ -4,8 +4,8 @@ RELEASETYPE="$2"
 FULLCLEAN="$3"
 
 case "$GMS_VARIANT" in
+    "GMS") AXION_VARIANT="gms" ;;
     "Core") AXION_VARIANT="gms core" ;;
-    "Pico") AXION_VARIANT="gms pico" ;;
     "Vanilla") AXION_VARIANT="va" ;;
     *) AXION_VARIANT="gms core" ;;
 esac

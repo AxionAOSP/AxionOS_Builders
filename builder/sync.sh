@@ -6,7 +6,12 @@ LOCAL_MANIFEST_PATH=".repo/local_manifests/jenkins_custom_manifest.xml"
 [ -f "$LOCAL_MANIFEST_PATH" ] && rm -f "$LOCAL_MANIFEST_PATH"
 mkdir -p ".repo/local_manifests"
 
-repo init -u "$AOSP_MANIFEST_URL" -b "$AOSP_MANIFEST_BRANCH" --depth=1 --git-lfs || exit 1
+# Ensure required variables are set
+AOSP_URL="${AOSP_MANIFEST_URL:-https://github.com/AxionAOSP/android.git}"
+AOSP_BRANCH="${AOSP_MANIFEST_BRANCH:-lineage-23.2}"
+
+echo "Initializing repo with: $AOSP_URL -b $AOSP_BRANCH"
+repo init -u "$AOSP_URL" -b "$AOSP_BRANCH" --depth=1 --git-lfs || exit 1
 
 if [ -n "$LOCAL_MANIFEST_URL" ]; then
     curl -L -o "$LOCAL_MANIFEST_PATH" "$LOCAL_MANIFEST_URL" || exit 1
