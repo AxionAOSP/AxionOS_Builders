@@ -29,7 +29,7 @@ def main():
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         count = user_data.get("daily_count", 0) if user_data.get("last_build_date") == today else 0
-        limit = user_data.get("daily_limit", 5)
+        limit = user_data.get("daily_limit", 3)
 
         if role not in ["admin", "owner"] and count >= limit:
             with open(".quota_exceeded", "w") as f: f.write("True")
@@ -37,7 +37,18 @@ def main():
             sys.exit(1)
 
         user_data.update({"daily_count": count + 1, "last_build_date": today, "username": username})
-        repo.update_file("database.json", f"quota: Update build quota for {username}", json.dumps(db, indent=2), file_content.sha, branch=branch)
+        
+        bot_identity = {"name": "github-actions[bot]", "email": "41898282+github-actions[bot]@users.noreply.github.com"}
+        
+        repo.update_file(
+            "database.json", 
+            f"quota: Update build quota for {username}", 
+            json.dumps(db, indent=2), 
+            file_content.sha, 
+            branch=branch,
+            committer=bot_identity,
+            author=bot_identity
+        )
         print(f"✅ Quota updated for {username} ({count+1}/{limit})")
 
     except Exception as e:

@@ -41,7 +41,7 @@ GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "actions")
 DB_FILE_PATH = "database.json"
 
 # Constants
-MAX_QUOTA_USER = 5
+MAX_QUOTA_USER = 3
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
 ROLE_OWNER = "owner"

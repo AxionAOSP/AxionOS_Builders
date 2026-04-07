@@ -9,30 +9,24 @@
       "added_date": "2026-04-05"
     },
     "2036946327": {
-      "daily_count": 0,
-      "last_build_date": "",
+      "daily_count": 1,
+      "last_build_date": "2026-04-10",
       "role": "user",
       "username": "No_Cache",
       "added_by": "1484367093",
       "added_date": "2026-04-05"
     },
     "5228946425": {
-      "daily_count": 1,
-      "last_build_date": "2026-03-31",
+      "daily_count": 3,
+      "last_build_date": "2026-04-10",
       "role": "user",
       "username": "gustmynuts",
       "added_by": "1484367093",
       "added_date": "2026-03-31"
     },
-    "1484367093": {
-      "username": "Saikrishna1504",
-      "role": "owner",
-      "last_build_date": "2026-04-05",
-      "daily_count": 2
-    },
     "1338252069": {
-      "daily_count": 5,
-      "last_build_date": "2026-04-05",
+      "daily_count": 1,
+      "last_build_date": "2026-04-11",
       "role": "admin",
       "username": "manid_reddy",
       "added_by": "1484367093",
@@ -40,15 +34,45 @@
     },
     "5034150053": {
       "daily_count": 1,
-      "last_build_date": "2026-04-05",
+      "last_build_date": "2026-04-10",
       "role": "user",
       "username": "Amritorock",
       "added_by": "1484367093",
       "added_date": "2026-04-05"
+    },
+    "5943586973": {
+      "daily_count": 1,
+      "last_build_date": "2026-04-11",
+      "role": "user",
+      "username": "WazzupSensei911",
+      "added_by": "1484367093",
+      "added_date": "2026-04-07"
+    },
+    "1726050683": {
+      "daily_count": 2,
+      "last_build_date": "2026-04-07",
+      "role": "user",
+      "username": "rthedream",
+      "added_by": "1484367093",
+      "added_date": "2026-04-07"
+    },
+    "772712035": {
+      "daily_count": 1,
+      "last_build_date": "2026-04-07",
+      "role": "user",
+      "username": "Joker_V2_0",
+      "added_by": "1484367093",
+      "added_date": "2026-04-07"
+    },
+    "1484367093": {
+      "username": "Saikrishna1504",
+      "role": "owner",
+      "last_build_date": "2026-04-10",
+      "daily_count": 2
     }
   },
   "allowed_chats": [
-    "-1002929964497",
-    "-1001668507245"
+    "-1001668507245",
+    "-1002929964497"
   ]
 }
