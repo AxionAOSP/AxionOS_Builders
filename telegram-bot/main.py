@@ -61,6 +61,7 @@ async def set_bot_commands(app):
         BotCommand("quota", "🔢 Check your daily build limits"),
         BotCommand("listuser", "👤 List all authorized maintainers"),
         BotCommand("cancel", "🛑 Cancel a running workflow"),
+        BotCommand("cancelall", "🛑 Cancel all queued/running builds (Owner)"),
         BotCommand("save", "💾 Force sync Redis to GitHub (Admin)"),
         BotCommand("sync", "🔄 Force sync GitHub to Redis (Owner)"),
         BotCommand("announce", "📢 Broadcast message to all groups (Owner)"),
@@ -180,6 +181,8 @@ async def main():
     app.add_handler(CommandHandler("queue", queue_command))
     app.add_handler(CommandHandler("quota", quota_command))
     app.add_handler(CommandHandler("cancel", cancel_command))
+    from handlers.github import cancel_all_command
+    app.add_handler(CommandHandler("cancelall", cancel_all_command))
 
     app.add_handler(CallbackQueryHandler(handle_github_callbacks, pattern=r"^(build_).*"))
 

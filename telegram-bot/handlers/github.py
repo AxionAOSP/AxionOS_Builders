@@ -12,7 +12,7 @@ from telegram.error import BadRequest
 from datetime import datetime, timezone, timedelta
 from utils import (
     get_quota_status, get_user_data, update_user_data, convert_to_raw_url,
-    MAX_QUOTA_USER, ROLE_ADMIN, ROLE_OWNER, restricted_command,
+    MAX_QUOTA_USER, ROLE_ADMIN, ROLE_OWNER, OWNER_ID, restricted_command,
     get_github_headers, get_redis, RK_CONFIG
 )
 
@@ -121,6 +121,13 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>⏱️ Updated</b>  : <code>{diff}s ago</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n🔗 <a href='{data.get('url', '#')}'><b>VIEW LIVE LOGS</b></a>"
     )
+    
+    m_id = data.get("message_id")
+    c_id = data.get("chat_id")
+    if m_id and c_id:
+        t_link = f"https://t.me/c/{str(c_id).replace('-100', '')}/{m_id}"
+        msg_text += f" | <a href='{t_link}'><b>VIEW IN CHANNEL</b></a>"
+
     new_msg = await update.message.reply_text(msg_text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     context.chat_data["last_status_mid"] = new_msg.message_id
 
@@ -183,6 +190,29 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await cancel_workflow_run(run_id):
         await status_msg.edit_text(f"🛑 **Run {run_id} Cancelled.**", parse_mode="Markdown")
     else: await status_msg.edit_text("❌ Failed to cancel.")
+
+async def cancel_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancels all queued/running builds (Owner only)"""
+    if update.effective_user.id != OWNER_ID:
+        return # Silent return for non-owners
+
+    status_msg = await update.message.reply_text("🔍 Fetching all active runs...")
+    runs = await get_workflow_runs()
+    
+    to_cancel = [r for r in runs if r['status'] in ["in_progress", "queued", "waiting", "pending"]]
+    
+    if not to_cancel:
+        await status_msg.edit_text("✅ No active builds to cancel.")
+        return
+
+    await status_msg.edit_text(f"🛑 Cancelling {len(to_cancel)} runs...")
+    success_count = 0
+    for run in to_cancel:
+        if await cancel_workflow_run(run['id']):
+            success_count += 1
+            await asyncio.sleep(0.5) # Avoid hitting rate limits
+
+    await status_msg.edit_text(f"✅ **Cancelled {success_count}/{len(to_cancel)} builds.**", parse_mode="Markdown")
 
 @restricted_command
 async def quota_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -266,13 +296,20 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
             if not p:
                 await query.answer("Session Expired", show_alert=True)
                 return
+
+            # Security Check: Prevent non-admins from triggering Full Clean
+            role, _, _ = await get_quota_status(query.from_user.id)
+            if p.get('FULLCLEAN') == 'Yes' and role not in [ROLE_ADMIN, ROLE_OWNER]:
+                await query.answer("⛔ Security Alert: Full Clean restricted to Admins.", show_alert=True)
+                return
+
             r = await get_redis()
             main_chan = await r.hget(RK_CONFIG, "main_output_channel")
             kb = None
             if main_chan:
                 p["CHAT_ID"], p["TOPIC_ID"] = main_chan, "none"
                 if str(main_chan).startswith("-100"):
-                    kb = InlineKeyboardMarkup([[InlineKeyboardButton("📣 VIEW CHANNEL", url=f"https://t.me/c/{str(main_chan)[4:]}/1")]])
+                    kb = InlineKeyboardMarkup([[InlineKeyboardButton("📣 VIEW CHANNEL", url=f"https://t.me/c/{str(main_chan)[4:]}")]])
             
             await query.edit_message_text("⏳ <b>Dispatching...</b>", parse_mode=ParseMode.HTML)
             if await trigger_workflow(p):

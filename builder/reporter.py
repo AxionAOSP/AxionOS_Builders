@@ -72,8 +72,7 @@ def record_history(device, user, status, artifacts=None):
 
 def create_telegram_link(chat_id, topic_id, message_id):
     cid = str(chat_id).replace("-100", "")
-    if topic_id and str(topic_id).lower() != "none" and str(topic_id).strip():
-        return f"https://t.me/c/{cid}/{topic_id}/{message_id}"
+    # Use standard message link format. Topic ID is usually not needed in the URL path.
     return f"https://t.me/c/{cid}/{message_id}"
 
 def main():
@@ -114,17 +113,32 @@ def main():
     try: redis_client = redis.from_url(redis_url, decode_responses=True)
     except: redis_client = None
 
-    def update_redis(s, p=None):
+    def update_redis(s, p=None, m_id=None):
         if not redis_client: return
-        d = {"status": s, "device": args.device, "type": args.build_type, "gms": args.gms, "user": args.user, "url": args.build_url, "run_id": args.run_id, "updated_at": int(time.time())}
+        try:
+            raw = redis_client.get(f"build_status:{args.device}")
+            d = json.loads(raw) if raw else {}
+        except: d = {}
+
+        d.update({
+            "status": s, "device": args.device, "type": args.build_type, 
+            "gms": args.gms, "user": args.user, "url": args.build_url, 
+            "run_id": args.run_id, "updated_at": int(time.time()),
+            "chat_id": args.chat_id, "topic_id": args.topic_builder
+        })
         if p: d["progress"] = p
+        if m_id: d["message_id"] = m_id
+        
         try:
             redis_client.set(f"build_status:{args.device}", json.dumps(d), ex=86400)
             redis_client.set("active_build_device", args.device, ex=86400)
         except: pass
 
     s_map = {'started': 'Initializing', 'syncing': 'Syncing Source', 'building': 'Starting Build', 'success': 'Completed', 'failure': 'Failed', 'aborted': 'Aborted'}
-    if args.status in s_map: update_redis(s_map[args.status])
+    
+    # Don't overwrite existing progress if just updating status
+    if args.status in s_map: 
+        update_redis(s_map[args.status])
 
     if args.status == 'monitoring':
         if not os.path.exists(msg_id_file): return
@@ -177,7 +191,10 @@ def main():
     if args.status == 'started':
         msg = f"🚀 *BUILD INITIALIZED*\n{info_block}\n\n📊 [VIEW RUN]({args.build_url})"
         resp = bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2')
-        if resp and 'result' in resp: open(msg_id_file, 'w').write(str(resp['result']['message_id']))
+        if resp and 'result' in resp: 
+            m_id = str(resp['result']['message_id'])
+            open(msg_id_file, 'w').write(m_id)
+            update_redis("Initializing", m_id=m_id)
     elif args.status == 'aborted':
         record_history(args.device, args.user, "ABORTED")
         bot.send_message(args.chat_id, f"🛑 *BUILD ABORTED*\n{info_block}\n\n📊 [VIEW RUN]({args.build_url})", topic_id=args.topic_builder, parse_mode='MarkdownV2')

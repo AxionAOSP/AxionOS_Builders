@@ -65,8 +65,8 @@
       "added_date": "2026-04-05"
     },
     "7702157443": {
-      "daily_count": 0,
-      "last_build_date": "",
+      "daily_count": 1,
+      "last_build_date": "2026-04-11",
       "role": "user",
       "username": "elohim152",
       "added_by": "1484367093",
@@ -75,8 +75,8 @@
     "1484367093": {
       "username": "Saikrishna1504",
       "role": "owner",
-      "last_build_date": "2026-04-10",
-      "daily_count": 2
+      "last_build_date": "2026-04-11",
+      "daily_count": 1
     }
   },
   "allowed_chats": [
