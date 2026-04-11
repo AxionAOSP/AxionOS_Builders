@@ -110,7 +110,7 @@ def main():
         f"━━━━━━━━━━━━━━━━━━━━━━━━"
     )
 
-    redis_url = os.environ.get("REDIS_URL") or "redis://localhost:6379/0"
+    redis_url = os.environ.get("REDIS_URL") or "redis://localhost:6379/4"
     try: redis_client = redis.from_url(redis_url, decode_responses=True)
     except: redis_client = None
 

@@ -154,8 +154,8 @@ jobs:
             --build-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --source-dir "$AOSP_SOURCE_DIR"
 
-          git config --global user.name "Saikrishna1504"
-          git config --global user.email "saikrishna26918@gmail.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           SYNC_CMD="export AOSP_MANIFEST_URL=\"$AOSP_MANIFEST_URL\"; export AOSP_MANIFEST_BRANCH=\"$AOSP_MANIFEST_BRANCH\"; cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/sync.sh \"$LOCAL_MANIFEST\""
 
