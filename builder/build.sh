@@ -5,12 +5,13 @@ FULLCLEAN="$3"
 
 case "$GMS_VARIANT" in
     "GMS") AXION_VARIANT="gms" ;;
-    "Core") AXION_VARIANT="gms core" ;;
-    "Vanilla") AXION_VARIANT="va" ;;
-    *) AXION_VARIANT="gms core" ;;
+    "PICO") AXION_VARIANT="pico" ;;
+    "CORE") AXION_VARIANT="core" ;;
+    "VANILLA") AXION_VARIANT="va" ;;
+    *) AXION_VARIANT="" ;;
 esac
 
-echo "Building $DEVICE ($AXION_VARIANT)..."
+echo "Building $DEVICE ($GMS_VARIANT -> $AXION_VARIANT)..."
 . build/envsetup.sh || exit 1
 
 if [ "$FULLCLEAN" == "Yes" ]; then

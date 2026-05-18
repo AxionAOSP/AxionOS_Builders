@@ -115,7 +115,7 @@ async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "├ `/queue`: GitHub runs\n"
         "└ **Terminal:** `tmux attach -t axion_build`\n\n"
         "⚙️ **Options**\n"
-        "├ **GMS Variant**: `GMS`, `Core`, `Vanilla`\n"
+        "├ **GMS Variant**: `GMS`, `PICO`, `CORE`, `VANILLA`\n"
         "└ **Clean**: `Full Clean` (`make clean`)\n\n"
         "📄 **Local Manifest**\n"
         "└ [Reference Template](https://github.com/AxionAOSP/device_manifests/blob/main/begonia.xml)"

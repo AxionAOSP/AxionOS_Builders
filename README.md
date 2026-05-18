@@ -80,7 +80,7 @@ The control center for the entire system.
 ### Build Setup Menu
 The `/build` command triggers an interactive menu to customize your build:
 *   **Type**: Toggle build type (user, userdebug, eng).
-*   **GMS**: Choose variant (Core, Pico, Vanilla).
+*   **GMS**: Choose variant (GMS, PICO, CORE, VANILLA).
 *   **Clean**: Toggle `mka clean` before building.
 *   **Target**: Dynamically redirects to your main channel if configured.
 

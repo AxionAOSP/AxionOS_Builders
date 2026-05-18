@@ -32,8 +32,9 @@ on:
         type: choice
         options:
           - 'GMS'
-          - 'Core'
-          - 'Vanilla'
+          - 'PICO'
+          - 'CORE'
+          - 'VANILLA'
       LOCAL_MANIFEST_URL:
         description: 'URL to local_manifest.xml'
         required: false

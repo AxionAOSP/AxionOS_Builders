@@ -235,7 +235,15 @@ def main():
                 link = upload_to_gofile(p)
                 if link: extras[img] = link
         json_url = ""
-        gms_p = os.path.join(out_dir, "VANILLA" if args.gms == "Vanilla" else "GMS", f"{args.device}.json")
+        # Map variants to their respective output directories
+        # VANILLA -> VANILLA/, others (GMS, PICO, CORE) -> GMS/
+        variant_dir = "VANILLA" if args.gms.upper() == "VANILLA" else "GMS"
+        
+        gms_p = os.path.join(out_dir, variant_dir, f"{args.device}.json")
+        if not os.path.exists(gms_p):
+             # Fallback to root directory if variant subdirectory is missing
+             gms_p = os.path.join(out_dir, f"{args.device}.json")
+             
         if os.path.exists(gms_p): json_url = upload_to_gofile(gms_p) or ""
         record_history(args.device, args.user, "SUCCESS", artifacts={"rom": g_link, **extras, "ota_json": json_url})
         btns = [[{"text": "💿 DOWNLOAD ROM", "url": g_link}]]

@@ -23,7 +23,7 @@ WORKFLOW_ID = "axion_build.yml"
 
 BUILD_OPTIONS = {
     'RELEASETYPE': ['user', 'userdebug', 'eng'],
-    'GMS_VARIANT': ['GMS', 'Core', 'Vanilla'],
+    'GMS_VARIANT': ['GMS', 'PICO', 'CORE', 'VANILLA'],
     'FULLCLEAN': ['No', 'Yes']
 }
 
