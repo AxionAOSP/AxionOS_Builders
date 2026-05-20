@@ -15,7 +15,6 @@ Contains the core build logic executed on the self-hosted runner.
 *   **`build.sh` / `sync.sh`**: Core AOSP sync and compilation scripts. Now includes a robust blocking loop to ensure the ROM ZIP is ready before finalizing.
 *   **`tmux_runner.sh`**: Orchestrates the build within a persistent `tmux` session. Uses `pipe-pane` for high-performance, real-time log streaming with zero CPU overhead.
 *   **`reporter.py`**: Background monitoring tool. Uses surgical log parsing (`Package Complete:`) to identify artifacts with 100% accuracy.
-*   **`quota_manager.py`**: Enforces daily build limits and updates user data via the GitHub API.
 *   **`utils/telegram.py`**: Shared utility for Telegram API interactions.
 
 ### 🤖 `telegram-bot/`
@@ -49,7 +48,6 @@ The control center for the entire system.
 | `/queue` | View the current GitHub Actions workflow queue. |
 | `/history` | View the last 5 build attempts. |
 | `/health` | Monitor server disk, RAM, and runner status. |
-| `/quota` | Check remaining daily build limits. |
 | `/listuser` | List all authorized maintainers. |
 | `/guide` | View detailed build options and manifest templates. |
 
@@ -71,7 +69,6 @@ The control center for the entire system.
 | :--- | :--- |
 | `/announce <msg>` | Broadcast an official announcement to all groups and the main channel. |
 | `/sync` | Force a manual sync of the GitHub DB to the Redis cache. |
-| `/addquota <user> <lim>`| Set a custom daily build limit for a specific user. |
 
 ---
 

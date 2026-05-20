@@ -142,7 +142,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/queue` - GitHub queue.\n"
         "`/history` - Last 5 builds.\n"
         "`/health` - Server health.\n"
-        "`/quota` - Check limits.\n"
         "`/listuser` - Maintainers list.\n"
         "`/guide` - Detailed guide.\n\n"
     )
@@ -159,7 +158,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_owner:
         help_text += (
             "**👑 Owner Commands:**\n"
-            "`/announce <msg>` | `/sync` | `/addquota`\n"
+            "`/announce <msg>` | `/sync`\n"
         )
     elif not is_admin: help_text += "💡 _Request admin access for more features._"
     await update.message.reply_text(help_text, parse_mode="Markdown")

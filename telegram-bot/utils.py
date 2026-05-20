@@ -41,7 +41,6 @@ GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "actions")
 DB_FILE_PATH = "database.json"
 
 # Constants
-MAX_QUOTA_USER = 3
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
 ROLE_OWNER = "owner"
@@ -239,7 +238,7 @@ async def update_user_data(user_id, modifier_func, commit_msg=None):
     uid = str(user_id)
     
     raw = await r.hget(RK_USERS, uid)
-    data = json.loads(raw) if raw else {"daily_count": 0, "last_build_date": "", "role": ROLE_USER}
+    data = json.loads(raw) if raw else {"role": ROLE_USER}
     
     if not modifier_func(data): return False
     
@@ -248,23 +247,6 @@ async def update_user_data(user_id, modifier_func, commit_msg=None):
         asyncio.create_task(save_db_to_github(commit_msg))
     
     return True
-
-async def get_quota_status(user_id):
-    """Returns (role, used, remaining)"""
-    user_data = await get_user_data(user_id)
-    if not user_data: return None, 0, 0
-    
-    role = user_data.get("role", ROLE_USER)
-    last_date = user_data.get("last_build_date", "")
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    
-    used = user_data.get("daily_count", 0) if last_date == today_str else 0
-    
-    limit = user_data.get("daily_limit")
-    if limit is None:
-        limit = 999 if role in [ROLE_ADMIN, ROLE_OWNER] else MAX_QUOTA_USER
-        
-    return role, used, max(0, limit - used)
 
 def convert_to_raw_url(url):
     """Converts Git web UI URLs into raw content URLs"""

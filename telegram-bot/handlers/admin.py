@@ -190,7 +190,7 @@ async def announce_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @restricted_command
 async def set_role_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sets user role and build limit (Owner only)"""
+    """Sets user role (Owner only)"""
     user = update.effective_user
     sender_data = await get_user_data(user.id)
     sender_role = sender_data.get("role") if sender_data else None
@@ -201,21 +201,15 @@ async def set_role_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target_id, target_name = await resolve_user(update, context)
     if not target_id:
-        await update.message.reply_text("⚠️ Usage: `/setrole <Role> <@user/ID> [Limit]`", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ Usage: `/setrole <Role> <@user/ID>`", parse_mode="Markdown")
         return
 
     args = context.args
-    new_role, custom_limit = None, None
+    new_role = None
 
     for arg in args:
         if arg.lower() in [ROLE_ADMIN, ROLE_USER]:
             new_role = arg.lower()
-            break
-
-    for arg in args:
-        val = str(arg).lower().replace("/d", "").replace("/day", "")
-        if val.isdigit() and arg.lower() != new_role and str(arg) != target_id:
-            custom_limit = int(val)
             break
 
     if not new_role:
@@ -224,13 +218,11 @@ async def set_role_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     def role_mod(data):
         data["role"] = new_role
-        if custom_limit is not None: data["daily_limit"] = custom_limit
         return True
 
     success = await update_user_data(target_id, role_mod, commit_msg=f"database: Set {target_name} to {new_role}")
     if success:
-        limit_text = f" (Limit: {custom_limit}/day)" if custom_limit is not None else ""
-        await update.message.reply_text(f"✅ **Updated:** `{target_name}` is now `{new_role.upper()}`{limit_text}.")
+        await update.message.reply_text(f"✅ **Updated:** `{target_name}` is now `{new_role.upper()}`.")
     else:
         await update.message.reply_text("❌ Update failed.")
 
@@ -260,9 +252,7 @@ async def add_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "username": target_username.replace("@", ""),
             "role": target_role,
             "added_by": str(user.id),
-            "added_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-            "daily_count": 0,
-            "last_build_date": ""
+            "added_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")
         })
         return True
 
@@ -295,38 +285,6 @@ async def remove_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await r.hdel(RK_USERS, target_id)
     asyncio.create_task(save_db_to_github(f"database: Remove user {target_name}"))
     await update.message.reply_text(f"✅ **User Removed:** `{target_name}`.")
-
-@restricted_command
-async def add_quota_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sets custom daily build limit (Owner only)"""
-    user = update.effective_user
-    sender_data = await get_user_data(user.id)
-    sender_role = sender_data.get("role") if sender_data else None
-    if not (user.id == OWNER_ID or sender_role == ROLE_OWNER):
-        await update.message.reply_text("⛔ **Access Denied.**")
-        return
-
-    target_id, target_name = await resolve_user(update, context)
-    if not target_id:
-        await update.message.reply_text("⚠️ Usage: `/addquota <@user/ID> <Limit>`", parse_mode="Markdown")
-        return
-
-    limit_val = None
-    for arg in context.args:
-        val = str(arg).lower().replace("/d", "").replace("/day", "")
-        if val.isdigit() and str(arg) != target_id:
-            limit_val = int(val)
-            break
-
-    if limit_val is None:
-        await update.message.reply_text("⚠️ Specify a numeric limit.")
-        return
-
-    success = await update_user_data(target_id, lambda d: d.update({"daily_limit": limit_val}) or True, commit_msg=f"database: Quota {target_name} -> {limit_val}")
-    if success:
-        await update.message.reply_text(f"✅ **Limit Set:** `{target_name}` daily limit is now `{limit_val}`.")
-    else:
-        await update.message.reply_text("❌ Update failed.")
 
 @restricted_command
 async def list_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

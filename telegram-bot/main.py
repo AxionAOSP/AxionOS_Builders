@@ -36,12 +36,12 @@ from dotenv import load_dotenv
 from utils import BOT_TOKEN, REDIS_URL, fetch_db_from_github, get_redis, RedisPersistence, OWNER_ID
 
 from handlers.github import (
-    build_command, status_command, queue_command, quota_command, cancel_command,
+    build_command, status_command, queue_command, cancel_command,
     handle_github_callbacks, get_workflow_runs
 )
 from handlers.admin import (
     add_user_command, remove_user_command, set_role_command, 
-    add_quota_command, approve_chat_command, disapprove_chat_command,
+    approve_chat_command, disapprove_chat_command,
     sync_db_command, save_db_command, set_channel_command, remove_channel_command,
     announce_command, list_chats_command
 )
@@ -58,7 +58,6 @@ async def set_bot_commands(app):
         BotCommand("queue", "🔭 View GitHub Actions queue"),
         BotCommand("history", "📜 View recent build history"),
         BotCommand("health", "🖥️ Check server disk & RAM"),
-        BotCommand("quota", "🔢 Check your daily build limits"),
         BotCommand("listuser", "👤 List all authorized maintainers"),
         BotCommand("cancel", "🛑 Cancel a running workflow"),
         BotCommand("cancelall", "🛑 Cancel all queued/running builds (Owner)"),
@@ -173,13 +172,11 @@ async def main():
     app.add_handler(CommandHandler("adduser", add_user_command))
     app.add_handler(CommandHandler("removeuser", remove_user_command))
     app.add_handler(CommandHandler("setrole", set_role_command))
-    app.add_handler(CommandHandler("addquota", add_quota_command))
     app.add_handler(CommandHandler("announce", announce_command))
 
     app.add_handler(CommandHandler("build", build_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("queue", queue_command))
-    app.add_handler(CommandHandler("quota", quota_command))
     app.add_handler(CommandHandler("cancel", cancel_command))
     from handlers.github import cancel_all_command
     app.add_handler(CommandHandler("cancelall", cancel_all_command))

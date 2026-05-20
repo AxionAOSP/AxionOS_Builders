@@ -11,8 +11,8 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from datetime import datetime, timezone, timedelta
 from utils import (
-    get_quota_status, get_user_data, update_user_data, convert_to_raw_url,
-    MAX_QUOTA_USER, ROLE_ADMIN, ROLE_OWNER, OWNER_ID, restricted_command,
+    get_user_data, update_user_data, convert_to_raw_url,
+    ROLE_ADMIN, ROLE_OWNER, OWNER_ID, restricted_command,
     get_github_headers, get_redis, RK_CONFIG
 )
 
@@ -215,27 +215,10 @@ async def cancel_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await status_msg.edit_text(f"✅ **Cancelled {success_count}/{len(to_cancel)} builds.**", parse_mode="Markdown")
 
 @restricted_command
-async def quota_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    role, used, remaining = await get_quota_status(update.effective_user.id)
-    if not role:
-        await update.message.reply_text("⛔ Not registered.")
-        return
-    h, m = ((datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) - datetime.now(timezone.utc)).seconds // 3600, ((datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) - datetime.now(timezone.utc)).seconds // 60 % 60
-    limit_str = "Unlimited" if role in [ROLE_ADMIN, ROLE_OWNER] else str(used + remaining)
-    msg = (
-        f"📊 <b>Quota Status</b>\n├ User: <code>{html.escape(update.effective_user.first_name)}</code>\n"
-        f"├ Role: <code>{role.upper()}</code>\n├ Usage: <code>{used}/{limit_str}</code>\n└ Reset: <code>{h}h {m}m</code>"
-    )
-    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
-
-@restricted_command
 async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    role, _, rem = await get_quota_status(update.effective_user.id)
-    if role is None:
+    user_data = await get_user_data(update.effective_user.id)
+    if user_data is None:
         await update.message.reply_text("⛔ Unauthorized.")
-        return
-    if role not in [ROLE_ADMIN, ROLE_OWNER] and rem <= 0:
-        await update.message.reply_text("⛔ Quota Exceeded.")
         return
     if not context.args:
         await update.message.reply_text("⚠️ Usage: `/build <device> [manifest_url]`")
@@ -298,7 +281,8 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
                 return
 
             # Security Check: Prevent non-admins from triggering Full Clean
-            role, _, _ = await get_quota_status(query.from_user.id)
+            user_data = await get_user_data(query.from_user.id)
+            role = user_data.get("role") if user_data else ROLE_USER
             if p.get('FULLCLEAN') == 'Yes' and role not in [ROLE_ADMIN, ROLE_OWNER]:
                 await query.answer("⛔ Security Alert: Full Clean restricted to Admins.", show_alert=True)
                 return
@@ -314,7 +298,6 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text("⏳ <b>Dispatching...</b>", parse_mode=ParseMode.HTML)
             if await trigger_workflow(p):
                 await query.edit_message_text(f"✅ <b>Build Started!</b>\nDevice: <code>{p['DEVICE']}</code>", parse_mode=ParseMode.HTML, reply_markup=kb)
-                await update_user_data(query.from_user.id, lambda d: d.update({"daily_count": d.get("daily_count", 0)+1, "last_build_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")}) or True)
             else: await query.edit_message_text("❌ <b>API Error.</b>", parse_mode=ParseMode.HTML)
             context.user_data.pop('pending_build', None)
 

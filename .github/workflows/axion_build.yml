@@ -105,7 +105,7 @@ jobs:
           chmod +x builder/*.sh
           chmod +x builder/*.py
 
-          rm -f *.log progress.txt .build_msg_id .quota_exceeded
+          rm -f *.log progress.txt .build_msg_id
           rm -f $AOSP_SOURCE_DIR/out/error.log
 
           mkdir -p $AOSP_SOURCE_DIR
@@ -128,13 +128,6 @@ jobs:
             --token "$TELEGRAM_TOKEN" \
             --build-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --source-dir "$AOSP_SOURCE_DIR"
-
-      - name: Check Quota
-        run: |
-          if [ "$BUILD_USER_ID" != "0" ] && [ "$BUILD_USER_ID" != "" ]; then
-            echo "Checking Quota..."
-            python3 builder/quota_manager.py "$BUILD_USER_ID" "$BUILD_USER" "$FULLCLEAN"
-          fi
 
       - name: Sync Source
         run: |
@@ -224,26 +217,22 @@ jobs:
       - name: Notify Failure
         if: failure()
         run: |
-          if [ -f ".quota_exceeded" ]; then
-            echo "Quota exceeded. Skipping generic report."
-          else
-            python3 builder/reporter.py \
-              --run-id "${{ github.run_id }}" \
-              --status failure \
-              --device "$DEVICE" \
-              --build-type "$RELEASETYPE" \
-              --release-status "No" \
-              --gms "$GMS_VARIANT" \
-              --full-clean "$FULLCLEAN" \
-              --user "$BUILD_USER" \
-              --chat-id "$TELEGRAM_CHAT_ID" \
-              --topic-builder "$TOPIC_BUILDER" \
-              --topic-error-logs "$TOPIC_ERROR_LOGS" \
-              --topic-release-json "$TOPIC_RELEASE_JSON" \
-              --token "$TELEGRAM_TOKEN" \
-              --build-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-              --source-dir "$AOSP_SOURCE_DIR"
-          fi
+          python3 builder/reporter.py \
+            --run-id "${{ github.run_id }}" \
+            --status failure \
+            --device "$DEVICE" \
+            --build-type "$RELEASETYPE" \
+            --release-status "No" \
+            --gms "$GMS_VARIANT" \
+            --full-clean "$FULLCLEAN" \
+            --user "$BUILD_USER" \
+            --chat-id "$TELEGRAM_CHAT_ID" \
+            --topic-builder "$TOPIC_BUILDER" \
+            --topic-error-logs "$TOPIC_ERROR_LOGS" \
+            --topic-release-json "$TOPIC_RELEASE_JSON" \
+            --token "$TELEGRAM_TOKEN" \
+            --build-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --source-dir "$AOSP_SOURCE_DIR"
 
       - name: Force Kill Processes
         if: cancelled()
