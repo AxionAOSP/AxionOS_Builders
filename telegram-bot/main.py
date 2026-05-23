@@ -40,7 +40,7 @@ from handlers.github import (
     handle_github_callbacks, get_workflow_runs
 )
 from handlers.admin import (
-    add_user_command, remove_user_command, set_role_command, 
+    remove_user_command, set_role_command, 
     approve_chat_command, disapprove_chat_command,
     sync_db_command, save_db_command, set_channel_command, remove_channel_command,
     announce_command, list_chats_command
@@ -58,8 +58,8 @@ async def set_bot_commands(app):
         BotCommand("queue", "🔭 View GitHub Actions queue"),
         BotCommand("history", "📜 View recent build history"),
         BotCommand("health", "🖥️ Check server disk & RAM"),
-        BotCommand("listuser", "👤 List all authorized maintainers"),
-        BotCommand("cancel", "🛑 Cancel a running workflow"),
+        BotCommand("listuser", "👤 List all authorized admins"),
+        BotCommand("cancel", "🛑 Cancel a build (Self or Any if Admin)"),
         BotCommand("cancelall", "🛑 Cancel all queued/running builds (Owner)"),
         BotCommand("save", "💾 Force sync Redis to GitHub (Admin)"),
         BotCommand("sync", "🔄 Force sync GitHub to Redis (Owner)"),
@@ -71,6 +71,7 @@ async def set_bot_commands(app):
         BotCommand("disapprovechat", "🗑️ Unauthorize a group (Admin)"),
         BotCommand("help", "📖 Show help & documentation")
     ]
+
     try:
         await app.bot.set_my_commands(commands, scope=BotCommandScopeDefault())
         await app.bot.set_my_commands(commands, scope=BotCommandScopeAllGroupChats())
@@ -169,7 +170,6 @@ async def main():
     app.add_handler(CommandHandler("approvechat", approve_chat_command))
     app.add_handler(CommandHandler("disapprovechat", disapprove_chat_command))
     app.add_handler(CommandHandler("listchats", list_chats_command))
-    app.add_handler(CommandHandler("adduser", add_user_command))
     app.add_handler(CommandHandler("removeuser", remove_user_command))
     app.add_handler(CommandHandler("setrole", set_role_command))
     app.add_handler(CommandHandler("announce", announce_command))

@@ -190,12 +190,13 @@ async def announce_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @restricted_command
 async def set_role_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sets user role (Owner only)"""
+    """Sets user role (Admin only)"""
     user = update.effective_user
     sender_data = await get_user_data(user.id)
     sender_role = sender_data.get("role") if sender_data else None
 
-    if not (user.id == OWNER_ID or sender_role == ROLE_OWNER):
+    # Allow Admins and Owner to set roles
+    if not (user.id == OWNER_ID or sender_role in [ROLE_ADMIN, ROLE_OWNER]):
         await update.message.reply_text("⛔ **Access Denied.**")
         return
 
@@ -217,50 +218,19 @@ async def set_role_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     def role_mod(data):
+        is_new = "added_date" not in data
         data["role"] = new_role
+        data["username"] = str(target_name).replace("@", "")
+        if is_new:
+            data["added_by"] = str(user.id)
+            data["added_date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         return True
 
     success = await update_user_data(target_id, role_mod, commit_msg=f"database: Set {target_name} to {new_role}")
     if success:
-        await update.message.reply_text(f"✅ **Updated:** `{target_name}` is now `{new_role.upper()}`.")
+        await update.message.reply_text(f"✅ **Success:** `{target_name}` is now `{new_role.upper()}`.")
     else:
-        await update.message.reply_text("❌ Update failed.")
-
-@restricted_command
-async def add_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Adds a new maintainer (Admin only)"""
-    user = update.effective_user
-    sender_data = await get_user_data(user.id)
-    sender_role = sender_data.get("role") if sender_data else None
-    if not (user.id == OWNER_ID or sender_role in [ROLE_ADMIN, ROLE_OWNER]):
-        await update.message.reply_text("⛔ **Access Denied.**")
-        return
-
-    target_id, target_username = await resolve_user(update, context)
-    if not target_id:
-        await update.message.reply_text("⚠️ Usage: `/adduser <@user/ID> [role]`", parse_mode="Markdown")
-        return
-
-    target_role = ROLE_USER
-    for arg in context.args:
-        if arg.lower() in [ROLE_ADMIN, ROLE_USER]:
-            target_role = arg.lower()
-            break
-
-    def add_user_mod(data):
-        data.update({
-            "username": target_username.replace("@", ""),
-            "role": target_role,
-            "added_by": str(user.id),
-            "added_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        })
-        return True
-
-    success = await update_user_data(target_id, add_user_mod, commit_msg=f"database: Add {target_username}")
-    if success:
-        await update.message.reply_text(f"✅ **User Added:** `{target_username}` as `{target_role.upper()}`.")
-    else:
-        await update.message.reply_text("❌ Failed to add user.")
+        await update.message.reply_text("❌ Operation failed.")
 
 @restricted_command
 async def remove_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -108,12 +108,12 @@ async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📚 **AxionOS Guide**\n\n"
         "🟢 **Starting**\n"
         "├ `/build <device> <manifest>`\n"
-        "├ `device`: Codename (e.g. `citrus`)\n"
-        "└ `manifest`: XML URL\n\n"
+        "├ **Groups**: Anyone can build!\n"
+        "└ **PM**: Restricted to Admins.\n\n"
         "📊 **Monitoring**\n"
         "├ `/status`: Live info\n"
         "├ `/queue`: GitHub runs\n"
-        "└ **Terminal:** `tmux attach -t axion_build`\n\n"
+        "└ `/cancel <ID>`: Stop your build.\n\n"
         "⚙️ **Options**\n"
         "├ **GMS Variant**: `GMS`, `PICO`, `CORE`, `VANILLA`\n"
         "└ **Clean**: `Full Clean` (`make clean`)\n\n"
@@ -140,9 +140,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/build <device> [url]` - Start build.\n"
         "`/status [device]` - Live progress.\n"
         "`/queue` - GitHub queue.\n"
+        "`/cancel <ID>` - Cancel your build.\n"
         "`/history` - Last 5 builds.\n"
         "`/health` - Server health.\n"
-        "`/listuser` - Maintainers list.\n"
+        "`/listuser` - Admin list.\n"
         "`/guide` - Detailed guide.\n\n"
     )
 
@@ -151,8 +152,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "**🛡️ Admin Commands:**\n"
             "`/approvechat [ID]` | `/disapprovechat`\n"
             "`/listchats` | `/setchannel <ID>`\n"
-            "`/adduser` | `/removeuser` | `/setrole`\n"
-            "`/save` | `/cancel <RunID>`\n\n"
+            "`/removeuser` | `/setrole`\n"
+            "`/save` | `/cancel <RunID>` (Any)\n\n"
         )
     
     if is_owner:

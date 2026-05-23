@@ -43,12 +43,13 @@ The control center for the entire system.
 ### 👤 User Commands
 | Command | Description |
 | :--- | :--- |
-| `/build <device> [url]` | Start a new build (Auto-finds manifest or uses optional URL). |
+| `/build <device> [url]` | Start a new build (Authorized groups only). |
 | `/status [device]` | Show real-time ROM build progress. |
 | `/queue` | View the current GitHub Actions workflow queue. |
+| `/cancel <RunID>` | Cancel your active build. |
 | `/history` | View the last 5 build attempts. |
 | `/health` | Monitor server disk, RAM, and runner status. |
-| `/listuser` | List all authorized maintainers. |
+| `/listuser` | List all authorized admins. |
 | `/guide` | View detailed build options and manifest templates. |
 
 ### 🛡️ Admin Commands
@@ -57,12 +58,11 @@ The control center for the entire system.
 | `/approvechat [ID]` | Authorize a group for bot usage. |
 | `/disapprovechat [ID]` | Remove a group from the authorized list. |
 | `/listchats` | View all authorized groups and the current output channel. |
-| `/adduser <user> [role]` | Whitelist a new maintainer (Admin/User). |
-| `/removeuser <ID>` | Remove a user from the database. |
-| `/setrole <role> <user>` | Update a user's permissions and limits. |
+| `/removeuser <ID>` | Remove an admin from the database. |
+| `/setrole <role> <user>` | Promote/Demote an admin. |
 | `/setchannel <ID>` | Redirect all build notifications to a specific channel. |
 | `/save` | Force a manual sync of the Redis state to the GitHub DB. |
-| `/cancel <RunID>` | Cancel an active GitHub workflow run. |
+| `/cancel <RunID>` | Cancel any active GitHub workflow run. |
 
 ### 👑 Owner Commands
 | Command | Description |

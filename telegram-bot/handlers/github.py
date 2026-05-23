@@ -70,6 +70,16 @@ async def cancel_workflow_run(run_id):
             print(f"[GH ERROR] Cancel failed: {e}")
             return False
 
+async def get_workflow_run(run_id):
+    """Fetches details of a specific workflow run"""
+    url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/actions/runs/{run_id}"
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, headers=get_github_headers(), timeout=15)
+            if resp.status_code == 200: return resp.json()
+        except Exception as e: print(f"[GH ERROR] Fetch run {run_id} failed: {e}")
+    return None
+
 @restricted_command
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows real-time build progress from Redis"""
@@ -186,7 +196,24 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Usage: `/cancel <RunID>`")
         return
     run_id = context.args[0]
-    status_msg = await update.message.reply_text(f"⏳ Cancelling Run {run_id}...")
+    user = update.effective_user
+    user_data = await get_user_data(user.id)
+    role = user_data.get("role") if user_data else None
+    
+    is_privileged = (user.id == OWNER_ID or role in [ROLE_ADMIN, ROLE_OWNER])
+    status_msg = await update.message.reply_text(f"⏳ Verifying Run {run_id}...")
+    
+    run_info = await get_workflow_run(run_id)
+    if not run_info:
+        await status_msg.edit_text("❌ Could not fetch run info.")
+        return
+
+    if not is_privileged:
+        run_name = run_info.get("display_title", "") or run_info.get("name", "")
+        if f"({user.id})" not in run_name:
+            await status_msg.edit_text("⛔ **Access Denied.**\nYou can only cancel your own builds.")
+            return
+
     if await cancel_workflow_run(run_id):
         await status_msg.edit_text(f"🛑 **Run {run_id} Cancelled.**", parse_mode="Markdown")
     else: await status_msg.edit_text("❌ Failed to cancel.")
@@ -216,10 +243,17 @@ async def cancel_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 @restricted_command
 async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data = await get_user_data(update.effective_user.id)
-    if user_data is None:
-        await update.message.reply_text("⛔ Unauthorized.")
-        return
+    chat = update.effective_chat
+    user = update.effective_user
+    user_data = await get_user_data(user.id)
+    role = user_data.get("role") if user_data else None
+
+    # PM restriction: Only Admin/Owner
+    if chat.type == "private":
+        if not (user.id == OWNER_ID or role in [ROLE_ADMIN, ROLE_OWNER]):
+            await update.message.reply_text("⛔ **Access Denied.**\nPrivate builds are restricted to Admins.")
+            return
+
     if not context.args:
         await update.message.reply_text("⚠️ Usage: `/build <device> [manifest_url]`")
         return
