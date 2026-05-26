@@ -12,7 +12,7 @@ from telegram.error import BadRequest
 from datetime import datetime, timezone, timedelta
 from utils import (
     get_user_data, update_user_data, convert_to_raw_url,
-    ROLE_ADMIN, ROLE_OWNER, OWNER_ID, restricted_command,
+    ROLE_ADMIN, ROLE_USER, ROLE_OWNER, OWNER_ID, restricted_command,
     get_github_headers, get_redis, RK_CONFIG
 )
 
