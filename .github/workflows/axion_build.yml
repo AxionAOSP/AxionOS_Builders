@@ -35,6 +35,14 @@ on:
           - 'PICO'
           - 'CORE'
           - 'VANILLA'
+      UPLOAD_CDN:
+        description: 'Upload to AxionOS CDN (R2)?'
+        required: true
+        default: 'No'
+        type: choice
+        options:
+          - 'No'
+          - 'Yes'
       LOCAL_MANIFEST_URL:
         description: 'URL to local_manifest.xml'
         required: false
@@ -66,6 +74,7 @@ jobs:
       DEVICE: ${{ inputs.DEVICE }}
       RELEASETYPE: ${{ inputs.RELEASETYPE }}
       FULLCLEAN: ${{ inputs.FULLCLEAN }}
+      UPLOAD_CDN: ${{ inputs.UPLOAD_CDN }}
       GMS_VARIANT: ${{ inputs.GMS_VARIANT }}
       LOCAL_MANIFEST: ${{ inputs.LOCAL_MANIFEST_URL }}
       BUILD_USER: ${{ inputs.BUILD_USER }}
@@ -76,6 +85,13 @@ jobs:
       TOPIC_BUILDER: ${{ (inputs.TOPIC_ID != 'none' && inputs.TOPIC_ID) || secrets.TOPIC_BUILDER }}
       TOPIC_ERROR_LOGS: ${{ (inputs.TOPIC_ID != 'none' && secrets.TOPIC_ERROR_LOGS) || 'none' }}
       TOPIC_RELEASE_JSON: ${{ (inputs.TOPIC_ID != 'none' && secrets.TOPIC_RELEASE_JSON) || 'none' }}
+
+      # R2 Credentials
+      R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+      R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_CDN_DOMAIN: ${{ secrets.R2_CDN_DOMAIN }}
 
       AOSP_MANIFEST_URL: 'https://github.com/AxionAOSP/android.git'
       AOSP_MANIFEST_BRANCH: 'lineage-23.2'
@@ -120,6 +136,7 @@ jobs:
             --release-status "No" \
             --gms "$GMS_VARIANT" \
             --full-clean "$FULLCLEAN" \
+            --upload-cdn "$UPLOAD_CDN" \
             --user "$BUILD_USER" \
             --chat-id "$TELEGRAM_CHAT_ID" \
             --topic-builder "$TOPIC_BUILDER" \
@@ -139,6 +156,7 @@ jobs:
             --release-status "No" \
             --gms "$GMS_VARIANT" \
             --full-clean "$FULLCLEAN" \
+            --upload-cdn "$UPLOAD_CDN" \
             --user "$BUILD_USER" \
             --chat-id "$TELEGRAM_CHAT_ID" \
             --topic-builder "$TOPIC_BUILDER" \
@@ -169,6 +187,7 @@ jobs:
             --release-status "No" \
             --gms "$GMS_VARIANT" \
             --full-clean "$FULLCLEAN" \
+            --upload-cdn "$UPLOAD_CDN" \
             --user "$BUILD_USER" \
             --chat-id "$TELEGRAM_CHAT_ID" \
             --topic-builder "$TOPIC_BUILDER" \
@@ -205,6 +224,7 @@ jobs:
             --release-status "No" \
             --gms "$GMS_VARIANT" \
             --full-clean "$FULLCLEAN" \
+            --upload-cdn "$UPLOAD_CDN" \
             --user "$BUILD_USER" \
             --chat-id "$TELEGRAM_CHAT_ID" \
             --topic-builder "$TOPIC_BUILDER" \
@@ -225,6 +245,7 @@ jobs:
             --release-status "No" \
             --gms "$GMS_VARIANT" \
             --full-clean "$FULLCLEAN" \
+            --upload-cdn "$UPLOAD_CDN" \
             --user "$BUILD_USER" \
             --chat-id "$TELEGRAM_CHAT_ID" \
             --topic-builder "$TOPIC_BUILDER" \

@@ -30,6 +30,7 @@ The control center for the entire system.
 ## 🚀 Key Features
 
 *   **Smart Manifest Discovery**: Just run `/build <codename>`. The bot automatically pulls the manifest from the `AxionAOSP/device_manifests` repository.
+*   **Automated CDN Uploads**: Optional high-speed R2 mirroring for ROM ZIPs directly from the build menu.
 *   **Zero-Overhead Monitoring**: Real-time progress bars and log summaries streamed via high-performance I/O.
 *   **Channel Redirection**: Redirect build notifications and artifact reports to a dedicated Telegram channel.
 *   **Surgical Artifact Detection**: Extracts the exact output path from build logs to ensure the correct files are uploaded every time.
@@ -79,13 +80,25 @@ The `/build` command triggers an interactive menu to customize your build:
 *   **Type**: Toggle build type (user, userdebug, eng).
 *   **GMS**: Choose variant (GMS, PICO, CORE, VANILLA).
 *   **Clean**: Toggle `mka clean` before building.
+*   **Upload CDN**: Toggle automated Cloudflare R2 mirroring for the ROM ZIP.
 *   **Target**: Dynamically redirects to your main channel if configured.
 
 ### Artifact Delivery
 Once a build is complete, you get a premium delivery card:
 *   **💿 DOWNLOAD ROM ZIP**: Primary artifact link.
+*   **🚀 CDN MIRROR**: High-speed release link (if CDN toggle was enabled).
 *   **📥 IMAGE ARTIFACTS**: Boot, Recovery, and Vendor images grouped for a clean UI.
 *   **📄 OTA JSON**: Direct link to the generated release metadata.
+
+---
+
+## 🛠️ Prerequisites
+
+To support the new CDN features, the following package is required:
+
+```bash
+pip install boto3
+```
 
 ---
 
