@@ -259,6 +259,19 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Usage: `/build <device> [manifest_url]`")
         return
 
+    # Check if runner is online
+    import subprocess
+    runner_online = False
+    try:
+        subprocess.check_call(["pgrep", "-f", "Runner.Listener"], stdout=subprocess.DEVNULL)
+        runner_online = True
+    except Exception:
+        pass
+
+    if not runner_online:
+        await update.message.reply_text("runner is offline")
+        return
+
     dev = context.args[0]
     url = convert_to_raw_url(context.args[1]) if len(context.args) >= 2 else f"https://github.com/AxionAOSP/device_manifests/raw/main/{dev}.xml"
     status_msg = await update.message.reply_text(f"🔎 Validating Manifest...")
