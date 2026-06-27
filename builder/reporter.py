@@ -21,6 +21,16 @@ custom_lib_path = os.path.expanduser("~/pylib")
 if os.path.isdir(custom_lib_path) and custom_lib_path not in sys.path:
     sys.path.insert(0, custom_lib_path)
 
+try:
+    from dotenv import load_dotenv
+    for path in ['.', '..', 'telegram-bot', '../telegram-bot', '/home/sai/AxionOS_Builders/telegram-bot', '/home/sai/AxionOS_Builders']:
+        env_file = os.path.join(path, 'private.env')
+        if os.path.exists(env_file):
+            load_dotenv(dotenv_path=env_file)
+            break
+except ImportError:
+    pass
+
 def escape_markdown_v2(text):
     if not text: return ""
     text = text.replace('\\', '\\\\')
@@ -77,6 +87,26 @@ def upload_to_gofile(file_path):
             data = resp.json()
             return data['data']['downloadPage'] if data.get('status') == 'ok' else None
     except: return None
+
+def upload_to_pixeldrain(file_path):
+    api_key = os.environ.get("PD_API_KEY") or os.environ.get("PIXELDRAIN_API_KEY")
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    session = requests.Session()
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504], allowed_methods=frozenset(['POST']))
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+    try:
+        auth = ("", api_key) if api_key else None
+        with open(file_path, 'rb') as f:
+            resp = session.post("https://pixeldrain.com/api/file", files={'file': f}, auth=auth, headers=headers, timeout=600)
+            data = resp.json()
+            if data.get('success') or resp.status_code == 201:
+                file_id = data.get('id')
+                if file_id:
+                    return f"https://pixeldrain.com/u/{file_id}"
+            return None
+    except Exception as e:
+        print(f"Pixeldrain upload error: {e}")
+        return None
 
 def get_file_tail(file_path, lines=200):
     try:
@@ -268,14 +298,32 @@ def main():
             bot.send_message(args.chat_id, "⚠️ **Success but Artifact Not Found**", topic_id=args.topic_builder)
             return
         
-        g_link = upload_to_gofile(rom_file) or "Upload Failed"
+        # Determine upload stream from Redis
+        upload_stream = "gofile"
+        if redis_client:
+            try:
+                upload_stream = redis_client.hget("axn:config", "main_upload_stream") or "gofile"
+            except Exception as e:
+                print(f"Failed to get upload stream from Redis: {e}")
+
+        # Upload function with automatic fallback to Gofile
+        def upload_file_with_fallback(file_path):
+            if upload_stream == "pixeldrain":
+                link = upload_to_pixeldrain(file_path)
+                if link:
+                    return link
+                print(f"⚠️ Pixeldrain upload failed for {file_path}. Falling back to Gofile...")
+                return upload_to_gofile(file_path)
+            return upload_to_gofile(file_path)
+
+        g_link = upload_file_with_fallback(rom_file) or "Upload Failed"
         cdn_link = upload_to_r2(rom_file, args.device) if args.upload_cdn == "Yes" else None
         
         extras = {}
         for img in ["boot.img", "recovery.img", "vendor_boot.img", "init_boot.img"]:
             p = os.path.join(out_dir, img)
             if os.path.exists(p):
-                link = upload_to_gofile(p)
+                link = upload_file_with_fallback(p)
                 if link: extras[img] = link
 
         json_url = ""
@@ -287,7 +335,7 @@ def main():
              gms_p = os.path.join(out_dir, f"{args.device}.json")
              
         if os.path.exists(gms_p): 
-            json_url = upload_to_gofile(gms_p) or ""
+            json_url = upload_file_with_fallback(gms_p) or ""
 
         record_history(args.device, args.user, "SUCCESS", artifacts={"rom": g_link, "cdn_rom": cdn_link, **extras, "ota_json": json_url})
         

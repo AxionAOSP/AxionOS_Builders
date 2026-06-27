@@ -269,10 +269,12 @@ async def list_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     r = await get_redis()
     from utils import RK_CONFIG
     main_chan = await r.hget(RK_CONFIG, "main_output_channel")
+    upload_stream = await r.hget(RK_CONFIG, "main_upload_stream") or "gofile"
     groups = await r.smembers(RK_CHATS)
     
     msg = "<b>📡 NETWORK CONFIG</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
     msg += f"<b>📢 Main Channel:</b>\n└ <code>{main_chan or 'None'}</code>\n\n"
+    msg += f"<b>📤 Main Upload Stream:</b>\n└ <code>{upload_stream.capitalize()}</code>\n\n"
     msg += f"<b>👥 Groups ({len(groups)}):</b>\n"
     if groups:
         for g_id in sorted(list(groups)): msg += f"├ <code>{g_id}</code>\n"
@@ -317,3 +319,38 @@ async def remove_channel_command(update: Update, context: ContextTypes.DEFAULT_T
     from utils import RK_CONFIG
     await r.hdel(RK_CONFIG, "main_output_channel")
     await update.message.reply_text("✅ **Main Channel Removed.**")
+
+@restricted_command
+async def usepd_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle or set Pixeldrain as the main upload stream"""
+    user = update.effective_user
+    sender_data = await get_user_data(user.id)
+    sender_role = sender_data.get("role") if sender_data else None
+    if not (user.id == OWNER_ID or sender_role in [ROLE_ADMIN, ROLE_OWNER]):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    r = await get_redis()
+    from utils import RK_CONFIG
+    
+    current_stream = await r.hget(RK_CONFIG, "main_upload_stream") or "gofile"
+    
+    if context.args:
+        arg = context.args[0].lower()
+        if arg in ["on", "yes", "true", "pixeldrain", "pd"]:
+            target_stream = "pixeldrain"
+        elif arg in ["off", "no", "false", "gofile", "gf"]:
+            target_stream = "gofile"
+        else:
+            await update.message.reply_text("⚠️ Usage: `/usepd [on|off]` or `/usepd [pixeldrain|gofile]`")
+            return
+    else:
+        # Toggle
+        target_stream = "pixeldrain" if current_stream == "gofile" else "gofile"
+
+    await r.hset(RK_CONFIG, "main_upload_stream", target_stream)
+    
+    if target_stream == "pixeldrain":
+        await update.message.reply_text("✅ <b>Main Upload Stream set to:</b> <code>Pixeldrain</code> 📡", parse_mode=ParseMode.HTML)
+    else:
+        await update.message.reply_text("✅ <b>Main Upload Stream set to:</b> <code>Gofile</code> 📁", parse_mode=ParseMode.HTML)

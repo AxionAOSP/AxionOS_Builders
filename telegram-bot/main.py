@@ -43,7 +43,7 @@ from handlers.admin import (
     remove_user_command, set_role_command, 
     approve_chat_command, disapprove_chat_command,
     sync_db_command, save_db_command, set_channel_command, remove_channel_command,
-    announce_command, list_chats_command
+    announce_command, list_chats_command, usepd_command
 )
 from handlers.general import (
     start_command, help_command, list_users_command, guide_command,
@@ -69,6 +69,7 @@ async def set_bot_commands(app):
         BotCommand("removechannel", "🗑️ Remove main output channel (Admin)"),
         BotCommand("approvechat", "✅ Authorize a group (Admin)"),
         BotCommand("disapprovechat", "🗑️ Unauthorize a group (Admin)"),
+        BotCommand("usepd", "📡 Toggle or set Pixeldrain upload stream (Admin)"),
         BotCommand("help", "📖 Show help & documentation")
     ]
 
@@ -173,6 +174,7 @@ async def main():
     app.add_handler(CommandHandler("removeuser", remove_user_command))
     app.add_handler(CommandHandler("setrole", set_role_command))
     app.add_handler(CommandHandler("announce", announce_command))
+    app.add_handler(CommandHandler("usepd", usepd_command))
 
     app.add_handler(CommandHandler("build", build_command))
     app.add_handler(CommandHandler("status", status_command))

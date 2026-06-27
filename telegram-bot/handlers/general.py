@@ -153,7 +153,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "`/approvechat [ID]` | `/disapprovechat`\n"
             "`/listchats` | `/setchannel <ID>`\n"
             "`/removeuser` | `/setrole`\n"
-            "`/save` | `/cancel <RunID>` (Any)\n\n"
+            "`/save` | `/usepd [on|off]`\n"
+            "`/cancel <RunID>` (Any)\n\n"
         )
     
     if is_owner:
