@@ -316,8 +316,30 @@ def main():
                 return upload_to_gofile(file_path)
             return upload_to_gofile(file_path)
 
-        g_link = upload_file_with_fallback(rom_file) or "Upload Failed"
-        cdn_link = upload_to_r2(rom_file, args.device) if args.upload_cdn == "Yes" else None
+        # Locate target files zip if upload_cdn is enabled
+        target_files_zip = None
+        if args.upload_cdn == "Yes":
+            target_files_dir = os.path.join(out_dir, 'obj', 'PACKAGING', 'target_files_intermediates')
+            if os.path.exists(target_files_dir):
+                for f in os.listdir(target_files_dir):
+                    file_path = os.path.join(target_files_dir, f)
+                    if os.path.isfile(file_path) and f.endswith('.zip') and 'target_files' in f and not f.endswith('.zip.list'):
+                        target_files_zip = file_path
+                        break
+
+        # If upload_cdn is enabled (release build) and we have target_files_zip:
+        # 1. target_files_zip goes to Gofile/Pixeldrain (free storage stream, labeled as TARGET FILES)
+        # 2. rom_file goes to the premium R2 CDN (labeled as CDN MIRROR)
+        # Otherwise, the rom_file goes to Gofile/Pixeldrain, and R2 CDN is not used.
+        main_upload_file = rom_file
+        if args.upload_cdn == "Yes" and target_files_zip:
+            main_upload_file = target_files_zip
+
+        g_link = upload_file_with_fallback(main_upload_file) or "Upload Failed"
+        
+        cdn_link = None
+        if args.upload_cdn == "Yes":
+            cdn_link = upload_to_r2(rom_file, args.device)
         
         extras = {}
         for img in ["boot.img", "recovery.img", "vendor_boot.img", "init_boot.img"]:
@@ -341,8 +363,16 @@ def main():
         
         btns = []
         # Main ROM Row
-        rom_row = [{"text": "💿 DOWNLOAD ROM", "url": g_link}]
-        if cdn_link: rom_row.append({"text": "🚀 CDN MIRROR", "url": cdn_link})
+        if args.upload_cdn == "Yes" and target_files_zip:
+            # Release build: target_files.zip is in free upload (g_link)
+            rom_row = [{"text": "📦 TARGET FILES", "url": g_link}]
+        else:
+            # Regular build: rom_file is in free upload (g_link)
+            rom_row = [{"text": "💿 DOWNLOAD ROM", "url": g_link}]
+
+        if cdn_link:
+            # Release build: rom_file is in R2 CDN (cdn_link)
+            rom_row.append({"text": "🚀 CDN MIRROR", "url": cdn_link})
         btns.append(rom_row)
 
         # Image Artifacts
