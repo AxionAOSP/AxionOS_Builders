@@ -31,6 +31,7 @@ The control center for the entire system.
 
 *   **Smart Manifest Discovery**: Just run `/build <codename>`. The bot automatically pulls the manifest from the `AxionAOSP/device_manifests` repository.
 *   **Automated CDN Uploads**: Optional high-speed R2 mirroring for ROM ZIPs directly from the build menu.
+*   **Dynamic Upload Streams**: Toggle between Gofile and Pixeldrain as your main free upload stream with the `/usepd` command, complete with automatic fallback logic.
 *   **Zero-Overhead Monitoring**: Real-time progress bars and log summaries streamed via high-performance I/O.
 *   **Channel Redirection**: Redirect build notifications and artifact reports to a dedicated Telegram channel.
 *   **Surgical Artifact Detection**: Extracts the exact output path from build logs to ensure the correct files are uploaded every time.
@@ -62,6 +63,7 @@ The control center for the entire system.
 | `/removeuser <ID>` | Remove an admin from the database. |
 | `/setrole <role> <user>` | Promote/Demote an admin. |
 | `/setchannel <ID>` | Redirect all build notifications to a specific channel. |
+| `/usepd [on|off]` | Toggle or set Pixeldrain as the main free upload stream. |
 | `/save` | Force a manual sync of the Redis state to the GitHub DB. |
 | `/cancel <RunID>` | Cancel any active GitHub workflow run. |
 
