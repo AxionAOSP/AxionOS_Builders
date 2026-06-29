@@ -139,6 +139,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 **AxionOS Bot Help**\n\n"
         "**👤 User Commands:**\n"
         "`/build <device> [url]` - Start build.\n"
+        "`/validate <url>` - Validate local manifest repos.\n"
         "`/status [device]` - Live progress.\n"
         "`/queue` - GitHub queue.\n"
         "`/cancel <ID>` - Cancel your build.\n"

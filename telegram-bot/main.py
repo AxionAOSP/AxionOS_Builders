@@ -37,7 +37,7 @@ from utils import BOT_TOKEN, REDIS_URL, fetch_db_from_github, get_redis, RedisPe
 
 from handlers.github import (
     build_command, status_command, queue_command, cancel_command,
-    handle_github_callbacks, get_workflow_runs
+    handle_github_callbacks, get_workflow_runs, validate_command
 )
 from handlers.admin import (
     remove_user_command, set_role_command, 
@@ -54,6 +54,7 @@ async def set_bot_commands(app):
     """Sets bot commands for Telegram menu"""
     commands = [
         BotCommand("build", "🚀 Start a new ROM build"),
+        BotCommand("validate", "🔍 Validate a local manifest XML and its remote repos"),
         BotCommand("status", "📊 View real-time progress"),
         BotCommand("queue", "🔭 View GitHub Actions queue"),
         BotCommand("history", "📜 View recent build history"),
@@ -177,6 +178,7 @@ async def main():
     app.add_handler(CommandHandler("usepd", usepd_command))
 
     app.add_handler(CommandHandler("build", build_command))
+    app.add_handler(CommandHandler("validate", validate_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("queue", queue_command))
     app.add_handler(CommandHandler("cancel", cancel_command))

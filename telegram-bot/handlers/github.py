@@ -358,3 +358,177 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
             try: await query.edit_message_reply_markup(get_build_menu_keyboard(p))
             except: pass
         await query.answer()
+
+def resolve_remote_url(manifest_url, fetch):
+    if not fetch:
+        return ""
+    fetch = fetch.strip()
+    if fetch.startswith("http://") or fetch.startswith("https://") or fetch.startswith("git://") or fetch.startswith("ssh://"):
+        return fetch.rstrip("/")
+    
+    # Resolve relative URL
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(manifest_url)
+        path_parts = [p for p in parsed.path.split("/") if p]
+        if path_parts:
+            path_parts.pop() # Discard filename
+            
+        if fetch.startswith(".."):
+            up_levels = fetch.split("/")
+            for part in up_levels:
+                if part == ".." and path_parts:
+                    path_parts.pop()
+                elif part != "..":
+                    path_parts.append(part)
+        else:
+            path_parts.append(fetch)
+            
+        resolved_path = "/" + "/".join(path_parts)
+        return f"{parsed.scheme}://{parsed.netloc}{resolved_path}".rstrip("/")
+    except Exception as e:
+        print(f"Error resolving relative fetch '{fetch}' against '{manifest_url}': {e}")
+        return fetch.rstrip("/")
+
+async def check_remote_ref(repo_url, revision):
+    """LIGHTWEIGHT ls-remote check for repo reachability and revision existence"""
+    try:
+        full_url = repo_url if repo_url.endswith(".git") else f"{repo_url}.git"
+        
+        proc = await asyncio.create_subprocess_exec(
+            "git", "ls-remote", full_url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        
+        if proc.returncode != 0:
+            err_msg = stderr.decode().strip() or "Repository unreachable or doesn't exist"
+            if "not found" in err_msg.lower() or "could not resolve host" in err_msg.lower():
+                err_msg = "Repository not found or unreachable"
+            return False, err_msg
+            
+        lines = stdout.decode().strip().split("\n")
+        if not revision:
+            return True, "Reachable (default branch)"
+            
+        if len(revision) == 40 and all(c in "0123456789abcdefABCDEF" for c in revision):
+            return True, "Reachable (SHA revision)"
+            
+        head_ref = f"refs/heads/{revision}"
+        tag_ref = f"refs/tags/{revision}"
+        
+        for line in lines:
+            if not line.strip(): continue
+            parts = line.split()
+            if len(parts) >= 2:
+                ref_name = parts[1]
+                if ref_name == head_ref or ref_name == tag_ref or ref_name.endswith(f"/{revision}"):
+                    return True, f"Found branch/tag: `{revision}`"
+                    
+        return False, f"Branch/Tag '{revision}' not found"
+    except Exception as e:
+        return False, f"Check failed: {str(e)}"
+
+@restricted_command
+async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Validates a local manifest and checks repository / branch reachability dynamically"""
+    if not context.args:
+        await update.message.reply_text("⚠️ Usage: `/validate <manifest_url>`")
+        return
+        
+    url = convert_to_raw_url(context.args[0])
+    status_msg = await update.message.reply_text("🔎 <b>Validating local manifest XML and fetching remotes...</b>", parse_mode=ParseMode.HTML)
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, timeout=15)
+            if resp.status_code != 200:
+                await status_msg.edit_text(f"❌ <b>Manifest download failed (HTTP {resp.status_code}).</b>", parse_mode=ParseMode.HTML)
+                return
+        except Exception as e:
+            await status_msg.edit_text(f"❌ <b>Failed to download manifest:</b> <code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+            return
+
+    try:
+        root = ET.fromstring(resp.content)
+        if root.tag != "manifest":
+            await status_msg.edit_text("❌ <b>Invalid XML: Root element is not &lt;manifest&gt;.</b>", parse_mode=ParseMode.HTML)
+            return
+    except Exception as e:
+        await status_msg.edit_text(f"❌ <b>XML Parsing Failed:</b> <code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        return
+
+    remotes = {}
+    default_remote = None
+    default_revision = None
+    
+    for r_elem in root.findall("remote"):
+        name = r_elem.get("name")
+        fetch = r_elem.get("fetch")
+        if name and fetch:
+            remotes[name] = fetch
+            
+    d_elem = root.find("default")
+    if d_elem is not None:
+        default_remote = d_elem.get("remote")
+        default_revision = d_elem.get("revision")
+
+    projects = []
+    for p_elem in root.findall("project"):
+        name = p_elem.get("name")
+        remote_name = p_elem.get("remote") or default_remote
+        revision = p_elem.get("revision") or default_revision
+        if name:
+            projects.append({
+                "name": name,
+                "remote_name": remote_name,
+                "revision": revision
+            })
+
+    if not projects:
+        await status_msg.edit_text("⚠️ <b>No &lt;project&gt; elements found in this manifest.</b>", parse_mode=ParseMode.HTML)
+        return
+
+    tasks = []
+    for project in projects:
+        remote_fetch = remotes.get(project["remote_name"]) if project["remote_name"] else None
+        if not remote_fetch:
+            remote_fetch = ".."
+            
+        base_url = resolve_remote_url(url, remote_fetch)
+        repo_url = f"{base_url}/{project['name']}"
+        tasks.append(check_remote_ref(repo_url, project["revision"]))
+
+    await status_msg.edit_text(f"🚀 <b>Manifest XML is valid.</b>\nChecking <b>{len(projects)}</b> repositories in parallel (lightweight ls-remote checks)...", parse_mode=ParseMode.HTML)
+
+    results = await asyncio.gather(*tasks)
+
+    filename = html.escape(url.split("/")[-1] or "manifest.xml")
+    report = f"📋 <b>MANIFEST VALIDATION REPORT</b>\n━━━━━━━━━━━━━━━━━━━━━━\n"
+    report += f"📄 <b>File</b>: <code>{filename}</code>\n"
+    report += f"🔄 <b>Total Projects</b>: {len(projects)}\n\n"
+
+    success_count = 0
+    for idx, project in enumerate(projects):
+        is_ok, details = results[idx]
+        rev = html.escape(project['revision']) if project['revision'] else "default branch"
+        rev_str = f" (<code>{rev}</code>)"
+        p_name = html.escape(project['name'])
+        
+        if is_ok:
+            success_count += 1
+            icon = "✅"
+            report += f"{icon} <b>{p_name}</b>{rev_str}\n"
+        else:
+            icon = "❌"
+            report += f"{icon} <b>{p_name}</b>{rev_str}\n"
+            report += f"   └ ⚠️ <i>Error</i>: <code>{html.escape(details)}</code>\n"
+
+    status_icon = "🟢" if success_count == len(projects) else "🔴"
+    status_text = "PASSED" if success_count == len(projects) else "FAILED"
+    
+    report += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+    report += f"{status_icon} <b>Validation Result</b>: <b>{status_text}</b> ({success_count}/{len(projects)} successful)"
+
+    await status_msg.edit_text(report, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
