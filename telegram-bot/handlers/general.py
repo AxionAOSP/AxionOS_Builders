@@ -116,7 +116,8 @@ async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "└ `/cancel <ID>`: Stop your build.\n\n"
         "⚙️ **Options**\n"
         "├ **GMS Variant**: `GMS`, `PICO`, `CORE`, `VANILLA`\n"
-        "└ **Clean**: `Full Clean` (`make clean`)\n\n"
+        "├ **Clean**: `Full Clean` (`make clean` before compile)\n"
+        "└ **Release Build**: Toggles high-speed Cloudflare R2 CDN Mirroring\n\n"
         "📄 **Local Manifest**\n"
         "└ [Reference Template](https://github.com/AxionAOSP/device_manifests/blob/main/begonia.xml)"
     )

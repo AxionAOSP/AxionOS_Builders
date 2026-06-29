@@ -17,7 +17,6 @@ load_dotenv(dotenv_path=os.path.join(base_dir, 'private.env'))
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 REDIS_URL = os.environ.get("REDIS_URL")
-STICKER_ID = os.environ.get("STICKER_ID")
 
 TEST_GROUP_ID = int(os.environ.get("TEST_GROUP_ID", "0"))
 TEST_CHANNEL_ID = os.environ.get("TEST_CHANNEL_ID")
@@ -36,7 +35,6 @@ ADMIN_USER_IDS = parse_list(os.environ.get("ADMIN_USER_IDS", ""))
 # GitHub Config
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO_NAME = os.environ.get("GITHUB_REPO_NAME")
-DB_REPO = os.environ.get("DB_REPO", GITHUB_REPO_NAME) 
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "actions")
 DB_FILE_PATH = "database.json"
 
@@ -141,7 +139,7 @@ def get_github_headers():
 
 async def fetch_db_from_github():
     """Sync database from GitHub to Redis"""
-    url = f"https://api.github.com/repos/{DB_REPO}/contents/{DB_FILE_PATH}?ref={GITHUB_BRANCH}"
+    url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/contents/{DB_FILE_PATH}?ref={GITHUB_BRANCH}"
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(url, headers=get_github_headers(), timeout=15)
@@ -180,7 +178,7 @@ async def save_db_to_github(commit_message="database: update from bot"):
     db = {"users": users, "allowed_chats": list(chats)}
     sha = await r.hget(RK_CONFIG, "db_sha")
     
-    url = f"https://api.github.com/repos/{DB_REPO}/contents/{DB_FILE_PATH}"
+    url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/contents/{DB_FILE_PATH}"
     json_str = json.dumps(db, indent=2)
     b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
     

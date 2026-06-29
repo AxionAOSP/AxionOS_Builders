@@ -32,7 +32,7 @@ def get_build_menu_keyboard(params):
     def btn(l, k): return InlineKeyboardButton(f"{l}: {params[k]}", callback_data=f"build_set:{k}")
     return InlineKeyboardMarkup([
         [btn("Type", "RELEASETYPE"), btn("Variant", "GMS_VARIANT")],
-        [btn("Full Clean", "FULLCLEAN"), btn("Upload CDN", "UPLOAD_CDN")],
+        [btn("Full Clean", "FULLCLEAN"), btn("Release Build", "UPLOAD_CDN")],
         [InlineKeyboardButton("✅ START", callback_data="build_action:start"), InlineKeyboardButton("❌ CANCEL", callback_data="build_action:cancel")]
     ])
 

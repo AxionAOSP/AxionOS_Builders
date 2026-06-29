@@ -42,36 +42,7 @@ The control center for the entire system.
 
 ## 🤖 Bot Commands
 
-### 👤 User Commands
-| Command | Description |
-| :--- | :--- |
-| `/build <device> [url]` | Start a new build (Authorized groups only). |
-| `/status [device]` | Show real-time ROM build progress. |
-| `/queue` | View the current GitHub Actions workflow queue. |
-| `/cancel <RunID>` | Cancel your active build. |
-| `/history` | View the last 5 build attempts. |
-| `/health` | Monitor server disk, RAM, and runner status. |
-| `/listuser` | List all authorized admins. |
-| `/guide` | View detailed build options and manifest templates. |
-
-### 🛡️ Admin Commands
-| Command | Description |
-| :--- | :--- |
-| `/approvechat [ID]` | Authorize a group for bot usage. |
-| `/disapprovechat [ID]` | Remove a group from the authorized list. |
-| `/listchats` | View all authorized groups and the current output channel. |
-| `/removeuser <ID>` | Remove an admin from the database. |
-| `/setrole <role> <user>` | Promote/Demote an admin. |
-| `/setchannel <ID>` | Redirect all build notifications to a specific channel. |
-| `/usepd [on|off]` | Toggle or set Pixeldrain as the main free upload stream. |
-| `/save` | Force a manual sync of the Redis state to the GitHub DB. |
-| `/cancel <RunID>` | Cancel any active GitHub workflow run. |
-
-### 👑 Owner Commands
-| Command | Description |
-| :--- | :--- |
-| `/announce <msg>` | Broadcast an official announcement to all groups and the main channel. |
-| `/sync` | Force a manual sync of the GitHub DB to the Redis cache. |
+To view all available commands, their usage guidelines, and detailed administrative options, simply run the **`/help`** command inside an authorized Telegram group, or interact with the bot's dynamic commands menu directly in your chat interface.
 
 ---
 
@@ -79,27 +50,76 @@ The control center for the entire system.
 
 ### Build Setup Menu
 The `/build` command triggers an interactive menu to customize your build:
-*   **Type**: Toggle build type (user, userdebug, eng).
-*   **GMS**: Choose variant (GMS, PICO, CORE, VANILLA).
-*   **Clean**: Toggle `mka clean` before building.
-*   **Upload CDN**: Toggle automated Cloudflare R2 mirroring for the ROM ZIP.
+*   **Type**: Toggle build type (`user`, `userdebug`, `eng`).
+*   **GMS**: Choose variant (`GMS`, `PICO`, `CORE`, `VANILLA`).
+*   **Clean**: Toggle `mka clean` before building (Full Clean).
+*   **Release Build**: Toggle automated Cloudflare R2 CDN mirroring for the ROM ZIP on success (creates premium high-speed release download links).
 *   **Target**: Dynamically redirects to your main channel if configured.
 
 ### Artifact Delivery
 Once a build is complete, you get a premium delivery card:
-*   **💿 DOWNLOAD ROM ZIP**: Primary artifact link.
-*   **🚀 CDN MIRROR**: High-speed release link (if CDN toggle was enabled).
-*   **📥 IMAGE ARTIFACTS**: Boot, Recovery, and Vendor images grouped for a clean UI.
+*   **💿 DOWNLOAD ROM ZIP**: Primary artifact link (points to Gofile/Pixeldrain in regular builds).
+*   **🚀 CDN MIRROR**: Premium, high-speed release download link (available if the **"Release Build"** toggle was enabled).
+*   **📦 TARGET FILES**: The generated `target_files.zip` (available only when **"Release Build"** is enabled). To save premium Cloudflare R2 storage, this developer-only asset (used to compile future **incremental OTA packages**) is uploaded to the free storage stream (Gofile/Pixeldrain), keeping your CDN exclusively reserved for user-facing ROM downloads.
+*   **📥 IMAGE ARTIFACTS**: Boot, Recovery, and Vendor images grouped for a clean, cohesive user interface.
 *   **📄 OTA JSON**: Direct link to the generated release metadata.
+
+---
+
+## ⚙️ Setup & Configuration
+
+This system utilizes a **dual-configuration model** to maintain security and portability:
+1. **Local Server Config (`private.env`)**: Governs the local Telegram Bot service running on your server.
+2. **GitHub Repository Secrets**: Injected securely into the GitHub Actions runner pipeline during active builds.
+
+### 1. Local Server Config (`telegram-bot/private.env`)
+To run the local Telegram bot on your server, copy the template and configure your variables:
+```bash
+cp private.env.example telegram-bot/private.env
+nano telegram-bot/private.env
+```
+
+Ensure the following variables are defined (see `private.env.example` for details):
+*   `BOT_TOKEN`: Your Telegram Bot Token (from @BotFather).
+*   `CHANNEL_ID`: Chat ID where build updates are sent.
+*   `TOPIC_BUILDER`: Thread ID (if using a Forum group).
+*   `OWNER_ID`: Your personal Telegram User ID.
+*   `GITHUB_TOKEN`: GitHub Personal Access Token (PAT) with `repo` scope.
+*   `GITHUB_REPO_NAME`: Your GitHub Repository (e.g., `Owner/RepoName`).
+*   `GITHUB_BRANCH`: Active branch (e.g., `actions`).
+*   `REDIS_URL`: Redis connection string (e.g., `redis://localhost:6379/4`).
+*   `ALLOWED_CHAT_IDS`: List of permitted Group IDs.
+*   `ADMIN_USER_IDS`: List of authorized Admin User IDs.
+*   `PD_API_KEY`: Optional Pixeldrain API Key.
+
+---
+
+### 2. GitHub Repository Secrets (Set on GitHub.com)
+The build pipeline runner executes on GitHub's ecosystem. You **must NOT** save any CDN or build notification secrets in your local `private.env` file. Instead, configure them as **Repository Secrets** on your GitHub repository (under `Settings -> Secrets and variables -> Actions`):
+
+#### 🏗️ Builder Pipeline Secrets:
+*   `GH_PAT`: GitHub Personal Access Token (same as `GITHUB_TOKEN` above).
+*   `TELEGRAM_TOKEN`: Bot Token (same as `BOT_TOKEN` above).
+*   `TELEGRAM_CHAT_ID`: Notification group ID (same as `CHANNEL_ID` above).
+*   `TOPIC_BUILDER`: Thread ID (same as `TOPIC_BUILDER` above).
+*   `TOPIC_ERROR_LOGS`: Thread ID dedicated to posting compile error logs.
+*   `TOPIC_RELEASE_JSON`: Thread ID dedicated to posting OTA release JSON artifacts.
+
+#### ☁️ Cloudflare R2 CDN Secrets (Optional - for Success Mirroring):
+*   `R2_ACCESS_KEY`: Cloudflare R2 Access Key ID.
+*   `R2_SECRET_KEY`: Cloudflare R2 Secret Access Key.
+*   `R2_ACCOUNT_ID`: Cloudflare R2 Account ID.
+*   `R2_BUCKET`: Target R2 bucket name (e.g., `axionos-releases`).
+*   `R2_CDN_DOMAIN`: Custom CDN domain mapped to your bucket (e.g., `https://cdn.axionos.org`).
 
 ---
 
 ## 🛠️ Prerequisites
 
-To support the new CDN features, the following package is required:
+Install all required system and builder dependencies:
 
 ```bash
-pip install boto3
+pip install -r requirements.txt
 ```
 
 ---

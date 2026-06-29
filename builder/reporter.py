@@ -23,7 +23,22 @@ if os.path.isdir(custom_lib_path) and custom_lib_path not in sys.path:
 
 try:
     from dotenv import load_dotenv
-    for path in ['.', '..', 'telegram-bot', '../telegram-bot', '/home/sai/AxionOS_Builders/telegram-bot', '/home/sai/AxionOS_Builders']:
+    paths = ['.', '..', 'telegram-bot', '../telegram-bot']
+    # Dynamically find any folder in the user's home directory containing telegram-bot/private.env
+    try:
+        home_dir = os.path.expanduser('~')
+        if os.path.isdir(home_dir):
+            for item in os.listdir(home_dir):
+                full_path = os.path.join(home_dir, item)
+                if os.path.isdir(full_path):
+                    possible_env = os.path.join(full_path, 'telegram-bot', 'private.env')
+                    if os.path.exists(possible_env):
+                        paths.append(os.path.join(full_path, 'telegram-bot'))
+                        paths.append(full_path)
+    except Exception as scan_err:
+        print(f"Error scanning home directory for private.env: {scan_err}")
+
+    for path in paths:
         env_file = os.path.join(path, 'private.env')
         if os.path.exists(env_file):
             load_dotenv(dotenv_path=env_file)
