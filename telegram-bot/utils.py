@@ -160,9 +160,25 @@ async def fetch_db_from_github():
                 for uid, udata in users.items():
                     pipe.hset(RK_USERS, uid, json.dumps(udata))
                 
+                # Restore configuration settings if present in the database.json
+                config = db.get("config", {})
+                if "main_output_channel" in config:
+                    channel = config["main_output_channel"]
+                    if channel:
+                        pipe.hset(RK_CONFIG, "main_output_channel", channel)
+                    else:
+                        pipe.hdel(RK_CONFIG, "main_output_channel")
+                
+                if "main_upload_stream" in config:
+                    stream = config["main_upload_stream"]
+                    if stream:
+                        pipe.hset(RK_CONFIG, "main_upload_stream", stream)
+                    else:
+                        pipe.hdel(RK_CONFIG, "main_upload_stream")
+                
                 pipe.hset(RK_CONFIG, "db_sha", data['sha'])
                 await pipe.execute()
-                logger.info("Redis cache refreshed from GitHub")
+                logger.info("Redis cache refreshed from GitHub (including configuration settings)")
                 return db
         except Exception as e:
             logger.error(f"GitHub Fetch Failed: {e}")
@@ -175,7 +191,18 @@ async def save_db_to_github(commit_message="database: update from bot"):
     raw_users = await r.hgetall(RK_USERS)
     users = {uid: json.loads(udata) for uid, udata in raw_users.items()}
     
-    db = {"users": users, "allowed_chats": list(chats)}
+    # Retrieve current configuration settings
+    main_output_channel = await r.hget(RK_CONFIG, "main_output_channel")
+    main_upload_stream = await r.hget(RK_CONFIG, "main_upload_stream")
+    
+    db = {
+        "users": users,
+        "allowed_chats": list(chats),
+        "config": {
+            "main_output_channel": main_output_channel,
+            "main_upload_stream": main_upload_stream
+        }
+    }
     sha = await r.hget(RK_CONFIG, "db_sha")
     
     url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/contents/{DB_FILE_PATH}"
@@ -197,7 +224,7 @@ async def save_db_to_github(commit_message="database: update from bot"):
             if resp.status_code in [200, 201]:
                 new_sha = resp.json()['content']['sha']
                 await r.hset(RK_CONFIG, "db_sha", new_sha)
-                logger.info(f"GitHub backup successful: {commit_message}")
+                logger.info(f"GitHub backup successful (including configuration settings): {commit_message}")
                 return True
         except Exception as e:
             logger.error(f"GitHub Sync Failed: {e}")

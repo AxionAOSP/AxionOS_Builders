@@ -14,6 +14,13 @@ esac
 echo "Building $DEVICE ($GMS_VARIANT -> $AXION_VARIANT)..."
 . build/envsetup.sh || exit 1
 
+KEY_BACKUP_DIR="$HOME/android_keys"
+if [ -d "$KEY_BACKUP_DIR" ] && [ "$(ls -A "$KEY_BACKUP_DIR" 2>/dev/null)" ]; then
+    echo "🔑 Ensuring keys are restored to vendor/lineage-priv/keys..."
+    mkdir -p "vendor/lineage-priv/keys"
+    cp -r "$KEY_BACKUP_DIR/"* "vendor/lineage-priv/keys/"
+fi
+
 if [ "$FULLCLEAN" == "Yes" ]; then
     echo "Cleaning out/..."
     rm -rf out || exit 1

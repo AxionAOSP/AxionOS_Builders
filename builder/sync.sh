@@ -3,6 +3,17 @@ set -o pipefail
 LOCAL_MANIFEST_URL="$1"
 LOCAL_MANIFEST_PATH=".repo/local_manifests/jenkins_custom_manifest.xml"
 
+KEY_BACKUP_DIR="$HOME/android_keys"
+
+# Auto-backup keys if they exist in source but not in backup yet
+if [ -d "vendor/lineage-priv/keys" ] && [ "$(ls -A vendor/lineage-priv/keys 2>/dev/null)" ]; then
+    if [ ! -d "$KEY_BACKUP_DIR" ] || [ ! "$(ls -A "$KEY_BACKUP_DIR" 2>/dev/null)" ]; then
+        echo "🔑 Auto-backing up keys from vendor/lineage-priv/keys to $KEY_BACKUP_DIR..."
+        mkdir -p "$KEY_BACKUP_DIR"
+        cp -r vendor/lineage-priv/keys/* "$KEY_BACKUP_DIR/"
+    fi
+fi
+
 [ -f "$LOCAL_MANIFEST_PATH" ] && rm -f "$LOCAL_MANIFEST_PATH"
 mkdir -p ".repo/local_manifests"
 
@@ -23,3 +34,10 @@ fi
 
 . build/envsetup.sh || exit 1
 axionSync || exit 1
+
+# Restore keys if backup exists
+if [ -d "$KEY_BACKUP_DIR" ] && [ "$(ls -A "$KEY_BACKUP_DIR" 2>/dev/null)" ]; then
+    echo "🔑 Restoring keys from $KEY_BACKUP_DIR to vendor/lineage-priv/keys..."
+    mkdir -p "vendor/lineage-priv/keys"
+    cp -r "$KEY_BACKUP_DIR/"* "vendor/lineage-priv/keys/"
+fi
