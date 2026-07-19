@@ -1,24 +1,24 @@
 {
   "users": {
-    "772712035": {
+    "5228946425": {
       "daily_count": 1,
-      "last_build_date": "2026-04-07",
+      "last_build_date": "2026-04-12",
       "role": "user",
-      "username": "Joker_V2_0",
+      "username": "gustmynuts",
       "added_by": "1484367093",
-      "added_date": "2026-04-07"
-    },
-    "453142861": {
-      "role": "user",
-      "username": "heybyben",
-      "added_by": "1484367093",
-      "added_date": "2026-05-20"
+      "added_date": "2026-03-31"
     },
     "254573928": {
       "role": "user",
       "username": "Zarathos_Ghost_Rider",
       "added_by": "1484367093",
       "added_date": "2026-05-22"
+    },
+    "453142861": {
+      "role": "user",
+      "username": "heybyben",
+      "added_by": "1484367093",
+      "added_date": "2026-05-20"
     },
     "5943586973": {
       "daily_count": 3,
@@ -28,22 +28,6 @@
       "added_by": "1484367093",
       "added_date": "2026-04-07"
     },
-    "6400305911": {
-      "daily_count": 0,
-      "last_build_date": "",
-      "role": "user",
-      "username": "6400305911",
-      "added_by": "1484367093",
-      "added_date": "2026-04-05"
-    },
-    "7702157443": {
-      "daily_count": 2,
-      "last_build_date": "2026-04-12",
-      "role": "user",
-      "username": "elohim152",
-      "added_by": "1484367093",
-      "added_date": "2026-04-11"
-    },
     "5034150053": {
       "daily_count": 2,
       "last_build_date": "2026-05-19",
@@ -52,11 +36,11 @@
       "added_by": "1484367093",
       "added_date": "2026-04-05"
     },
-    "8517704273": {
+    "5724838961": {
       "role": "user",
-      "username": "NeverAlive_0",
+      "username": "Not_ayan99",
       "added_by": "1484367093",
-      "added_date": "2026-05-20"
+      "added_date": "2026-05-24"
     },
     "6066134972": {
       "role": "user",
@@ -64,13 +48,13 @@
       "added_by": "1484367093",
       "added_date": "2026-05-23"
     },
-    "2036946327": {
+    "1726050683": {
       "daily_count": 2,
-      "last_build_date": "2026-05-19",
+      "last_build_date": "2026-04-07",
       "role": "user",
-      "username": "No_Cache",
+      "username": "rthedream",
       "added_by": "1484367093",
-      "added_date": "2026-04-05"
+      "added_date": "2026-04-07"
     },
     "1338252069": {
       "daily_count": 1,
@@ -80,37 +64,57 @@
       "added_by": "1484367093",
       "added_date": "2026-04-05"
     },
+    "772712035": {
+      "daily_count": 1,
+      "last_build_date": "2026-04-07",
+      "role": "user",
+      "username": "Joker_V2_0",
+      "added_by": "1484367093",
+      "added_date": "2026-04-07"
+    },
+    "7702157443": {
+      "daily_count": 2,
+      "last_build_date": "2026-04-12",
+      "role": "user",
+      "username": "elohim152",
+      "added_by": "1484367093",
+      "added_date": "2026-04-11"
+    },
+    "2036946327": {
+      "daily_count": 2,
+      "last_build_date": "2026-05-19",
+      "role": "user",
+      "username": "No_Cache",
+      "added_by": "1484367093",
+      "added_date": "2026-04-05"
+    },
+    "8517704273": {
+      "role": "user",
+      "username": "NeverAlive_0",
+      "added_by": "1484367093",
+      "added_date": "2026-05-20"
+    },
+    "6400305911": {
+      "daily_count": 0,
+      "last_build_date": "",
+      "role": "user",
+      "username": "6400305911",
+      "added_by": "1484367093",
+      "added_date": "2026-04-05"
+    },
     "1484367093": {
       "username": "Saikrishna1504",
       "role": "owner",
       "last_build_date": "2026-05-19",
       "daily_count": 6
-    },
-    "5228946425": {
-      "daily_count": 1,
-      "last_build_date": "2026-04-12",
-      "role": "user",
-      "username": "gustmynuts",
-      "added_by": "1484367093",
-      "added_date": "2026-03-31"
-    },
-    "5724838961": {
-      "role": "user",
-      "username": "Not_ayan99",
-      "added_by": "1484367093",
-      "added_date": "2026-05-24"
-    },
-    "1726050683": {
-      "daily_count": 2,
-      "last_build_date": "2026-04-07",
-      "role": "user",
-      "username": "rthedream",
-      "added_by": "1484367093",
-      "added_date": "2026-04-07"
     }
   },
   "allowed_chats": [
     "-1001668507245",
     "-1002929964497"
-  ]
+  ],
+  "config": {
+    "main_output_channel": "-1003802619441",
+    "main_upload_stream": "pixeldrain"
+  }
 }
