@@ -14,6 +14,12 @@ if [ -d "vendor/lineage-priv/keys" ] && [ "$(ls -A vendor/lineage-priv/keys 2>/d
     fi
 fi
 
+# Discard uncommitted changes and untracked garbage in all active repositories to prevent sync failures
+if [ -d ".repo" ]; then
+    echo "Cleaning uncommitted or dirty changes in all repositories..."
+    repo forall -c "git reset --hard HEAD && git clean -qdf"
+fi
+
 [ -f "$LOCAL_MANIFEST_PATH" ] && rm -f "$LOCAL_MANIFEST_PATH"
 mkdir -p ".repo/local_manifests"
 
