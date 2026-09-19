@@ -2,16 +2,28 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from datetime import datetime
+import asyncio
 from utils import (
     OWNER_ID, ADMIN_USER_IDS, ROLE_ADMIN, ROLE_USER, ROLE_OWNER, 
     restricted_command, get_user_data, get_redis, RK_USERS
 )
 import json
 
+async def auto_delete(msg, delay=60):
+    await asyncio.sleep(delay)
+    try: await msg.delete()
+    except: pass
+
 @restricted_command
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows last 5 builds"""
     import os
+    chat_id = update.effective_chat.id
+    last_mid = context.chat_data.get("last_history_mid")
+    if last_mid:
+        try: await context.bot.delete_message(chat_id, last_mid)
+        except: pass
+
     history_file = os.path.join(os.path.expanduser("~"), "build_history.json")
     if not os.path.exists(history_file):
         await update.message.reply_text("📂 History is empty.")
@@ -34,7 +46,8 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"└ <b>Status</b> : <code>{build['status']}</code>\n\n"
             )
         msg += "━━━━━━━━━━━━━━━━━━━━━━━━\n<i>Use /fullhistory for full logs.</i>"
-        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        new_msg = await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        context.chat_data["last_history_mid"] = new_msg.message_id
     except Exception as e: await update.message.reply_text(f"❌ Error: {e}")
 
 @restricted_command
@@ -121,7 +134,8 @@ async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📄 **Local Manifest**\n"
         "└ [Reference Template](https://github.com/AxionAOSP/device_manifests/blob/main/begonia.xml)"
     )
-    await update.message.reply_text(text, parse_mode="Markdown", disable_web_page_preview=True)
+    new_msg = await update.message.reply_text(text, parse_mode="Markdown", disable_web_page_preview=True)
+    asyncio.create_task(auto_delete(new_msg, 60))
 
 @restricted_command
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,4 +179,5 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "`/announce <msg>` | `/sync`\n"
         )
     elif not is_admin: help_text += "💡 _Request admin access for more features._"
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    new_msg = await update.message.reply_text(help_text, parse_mode="Markdown")
+    asyncio.create_task(auto_delete(new_msg, 60))

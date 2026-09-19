@@ -198,6 +198,7 @@ jobs:
             --build-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --source-dir "$AOSP_SOURCE_DIR" &
           MONITOR_PID=$!
+          trap 'kill $MONITOR_PID 2>/dev/null || true' EXIT
 
           BUILD_CMD="export GMS_VARIANT=\"$GMS_VARIANT\"; cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/build.sh \"$DEVICE\" \"$RELEASETYPE\" \"$FULLCLEAN\""
 
@@ -211,8 +212,6 @@ jobs:
             echo "BUILD_SUCCESS=false" >> $GITHUB_OUTPUT
             exit 1
           fi
-
-          kill $MONITOR_PID || true
 
       - name: Notify Success
         if: steps.build_rom.outputs.BUILD_SUCCESS == 'true'

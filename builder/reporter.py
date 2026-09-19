@@ -287,7 +287,7 @@ def main():
         log_link, log_file = "Not Available", None
         paths = [os.path.join(args.source_dir, 'out', 'error.log'), os.path.join(workspace, 'sign.log'), os.path.join(workspace, 'build.log'), os.path.join(workspace, 'sync.log')]
         for p in paths:
-            if os.path.exists(p):
+            if os.path.exists(p) and os.path.getsize(p) > 0:
                 log_file = p
                 break
         summary = get_error_summary(log_file) or ""

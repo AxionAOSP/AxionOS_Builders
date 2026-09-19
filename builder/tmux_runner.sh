@@ -15,11 +15,8 @@ cleanup() {
 }
 trap 'cleanup' SIGINT SIGTERM
 
-if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    tmux new-session -d -s "$SESSION_NAME"
-else
-    tmux send-keys -t "$SESSION_NAME" "clear" C-m
-fi
+tmux kill-session -t "$SESSION_NAME" 2>/dev/null
+tmux new-session -d -s "$SESSION_NAME"
 
 tmux pipe-pane -t "$SESSION_NAME" "cat -u >> \"$LOG_FILE\""
 rm -f "$EXIT_CODE_FILE" "$DONE_FILE"

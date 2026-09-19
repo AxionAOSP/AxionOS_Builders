@@ -21,6 +21,11 @@ GITHUB_REPO_NAME = os.environ.get("GITHUB_REPO_NAME")
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "actions")
 WORKFLOW_ID = "axion_build.yml"
 
+async def auto_delete_warn(msg, delay=10):
+    await asyncio.sleep(delay)
+    try: await msg.delete()
+    except: pass
+
 BUILD_OPTIONS = {
     'RELEASETYPE': ['user', 'userdebug', 'eng'],
     'GMS_VARIANT': ['GMS', 'PICO', 'CORE', 'VANILLA'],
@@ -144,9 +149,16 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @restricted_command
 async def queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    last_mid = context.chat_data.get("last_queue_mid")
+    if last_mid:
+        try: await context.bot.delete_message(chat_id, last_mid)
+        except: pass
+
     status_msg = await update.message.reply_text("🔍 Scanning GitHub Queue...")
     msg, kb = await generate_queue_message()
-    await status_msg.edit_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb, disable_web_page_preview=True)
+    new_msg = await status_msg.edit_text(msg, parse_mode=ParseMode.HTML, reply_markup=kb, disable_web_page_preview=True)
+    context.chat_data["last_queue_mid"] = new_msg.message_id
 
 async def generate_queue_message():
     runs = await get_workflow_runs()
@@ -194,7 +206,8 @@ async def generate_queue_message():
 @restricted_command
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("⚠️ Usage: `/cancel <RunID>`")
+        warn = await update.message.reply_text("⚠️ Usage: `/cancel <RunID>`")
+        asyncio.create_task(auto_delete_warn(warn))
         return
     run_id = context.args[0]
     user = update.effective_user
@@ -207,17 +220,22 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     run_info = await get_workflow_run(run_id)
     if not run_info:
         await status_msg.edit_text("❌ Could not fetch run info.")
+        asyncio.create_task(auto_delete_warn(status_msg))
         return
 
     if not is_privileged:
         run_name = run_info.get("display_title", "") or run_info.get("name", "")
         if f"({user.id})" not in run_name:
             await status_msg.edit_text("⛔ **Access Denied.**\nYou can only cancel your own builds.")
+            asyncio.create_task(auto_delete_warn(status_msg))
             return
 
     if await cancel_workflow_run(run_id):
         await status_msg.edit_text(f"🛑 **Run {run_id} Cancelled.**", parse_mode="Markdown")
-    else: await status_msg.edit_text("❌ Failed to cancel.")
+        asyncio.create_task(auto_delete_warn(status_msg))
+    else:
+        await status_msg.edit_text("❌ Failed to cancel.")
+        asyncio.create_task(auto_delete_warn(status_msg))
 
 async def cancel_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels all queued/running builds (Owner only)"""
@@ -252,11 +270,13 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # PM restriction: Only Admin/Owner
     if chat.type == "private":
         if not (user.id == OWNER_ID or role in [ROLE_ADMIN, ROLE_OWNER]):
-            await update.message.reply_text("⛔ **Access Denied.**\nPrivate builds are restricted to Admins.")
+            warn = await update.message.reply_text("⛔ **Access Denied.**\nPrivate builds are restricted to Admins.")
+            asyncio.create_task(auto_delete_warn(warn))
             return
 
     if not context.args:
-        await update.message.reply_text("⚠️ Usage: `/build <device> [manifest_url]`")
+        warn = await update.message.reply_text("⚠️ Usage: `/build <device> [manifest_url]`")
+        asyncio.create_task(auto_delete_warn(warn))
         return
 
     # Check if runner is online
@@ -269,7 +289,8 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
     if not runner_online:
-        await update.message.reply_text("runner is offline")
+        warn = await update.message.reply_text("runner is offline")
+        asyncio.create_task(auto_delete_warn(warn))
         return
 
     dev = context.args[0]
@@ -281,13 +302,16 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resp = await client.get(url, timeout=10, follow_redirects=True)
             if resp.status_code != 200:
                 await status_msg.edit_text("❌ **Manifest Not Found.**", parse_mode="Markdown")
+                asyncio.create_task(auto_delete_warn(status_msg))
                 return
             root = ET.fromstring(resp.content)
             if root.tag != "manifest":
                 await status_msg.edit_text("❌ **Invalid Manifest XML.**", parse_mode="Markdown")
+                asyncio.create_task(auto_delete_warn(status_msg))
                 return
         except Exception as e:
             await status_msg.edit_text(f"❌ **Validation Failed:** `{e}`", parse_mode="Markdown")
+            asyncio.create_task(auto_delete_warn(status_msg))
             return
 
     await status_msg.delete()
@@ -434,29 +458,39 @@ async def check_remote_ref(repo_url, revision):
 async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Validates a local manifest and checks repository / branch reachability dynamically"""
     if not context.args:
-        await update.message.reply_text("⚠️ Usage: `/validate <manifest_url>`")
+        warn = await update.message.reply_text("⚠️ Usage: `/validate <manifest_url>`")
+        asyncio.create_task(auto_delete_warn(warn))
         return
         
     url = convert_to_raw_url(context.args[0])
     status_msg = await update.message.reply_text("🔎 <b>Validating local manifest XML and fetching remotes...</b>", parse_mode=ParseMode.HTML)
     
+    async def auto_delete(msg):
+        await asyncio.sleep(30)
+        try: await msg.delete()
+        except: pass
+
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(url, timeout=15)
             if resp.status_code != 200:
                 await status_msg.edit_text(f"❌ <b>Manifest download failed (HTTP {resp.status_code}).</b>", parse_mode=ParseMode.HTML)
+                asyncio.create_task(auto_delete(status_msg))
                 return
         except Exception as e:
             await status_msg.edit_text(f"❌ <b>Failed to download manifest:</b> <code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+            asyncio.create_task(auto_delete(status_msg))
             return
 
     try:
         root = ET.fromstring(resp.content)
         if root.tag != "manifest":
             await status_msg.edit_text("❌ <b>Invalid XML: Root element is not &lt;manifest&gt;.</b>", parse_mode=ParseMode.HTML)
+            asyncio.create_task(auto_delete(status_msg))
             return
     except Exception as e:
         await status_msg.edit_text(f"❌ <b>XML Parsing Failed:</b> <code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        asyncio.create_task(auto_delete(status_msg))
         return
 
     remotes = {}
@@ -488,6 +522,7 @@ async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not projects:
         await status_msg.edit_text("⚠️ <b>No &lt;project&gt; elements found in this manifest.</b>", parse_mode=ParseMode.HTML)
+        asyncio.create_task(auto_delete(status_msg))
         return
 
     tasks = []
@@ -532,3 +567,4 @@ async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     report += f"{status_icon} <b>Validation Result</b>: <b>{status_text}</b> ({success_count}/{len(projects)} successful)"
 
     await status_msg.edit_text(report, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    asyncio.create_task(auto_delete(status_msg))

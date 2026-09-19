@@ -14,13 +14,16 @@ if [ -d "vendor/lineage-priv/keys" ] && [ "$(ls -A vendor/lineage-priv/keys 2>/d
     fi
 fi
 
+find .repo/ -name "*.lock" -delete 2>/dev/null
+find . -name ".git" -type d -exec sh -c 'rm -f "$1/index.lock" "$1/config.lock" "$1/shallow.lock"' _ {} \; 2>/dev/null
+
 # Discard uncommitted changes and untracked garbage in all active repositories to prevent sync failures
 if [ -d ".repo" ]; then
     echo "Cleaning uncommitted or dirty changes in all repositories..."
     repo forall -c "git reset --hard HEAD && git clean -qdf"
 fi
 
-[ -f "$LOCAL_MANIFEST_PATH" ] && rm -f "$LOCAL_MANIFEST_PATH"
+rm -rf .repo/local_manifests/*
 mkdir -p ".repo/local_manifests"
 
 # Ensure required variables are set
@@ -34,9 +37,7 @@ if [ -n "$LOCAL_MANIFEST_URL" ]; then
     curl -L -o "$LOCAL_MANIFEST_PATH" "$LOCAL_MANIFEST_URL" || exit 1
 fi
 
-if [ ! -f "build/envsetup.sh" ]; then
-    repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all) || exit 1
-fi
+repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all) || exit 1
 
 . build/envsetup.sh || exit 1
 axionSync || exit 1
