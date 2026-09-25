@@ -226,8 +226,20 @@ def main():
         update_redis(s_map[args.status])
 
     if args.status == 'syncing':
-        if not os.path.exists(msg_id_file): return
-        msg_id = open(msg_id_file).read().strip()
+        msg_id = None
+        if os.path.exists(msg_id_file):
+            try: msg_id = open(msg_id_file).read().strip()
+            except: pass
+        if not msg_id and redis_client:
+            try:
+                raw = redis_client.get(f"build_status:{args.device}")
+                if raw:
+                    d = json.loads(raw)
+                    msg_id = d.get("message_id")
+            except: pass
+        if not msg_id:
+            return
+
         last_text = ""
         while True:
             prog = "🔄 `Syncing Source...`"
