@@ -98,7 +98,6 @@ jobs:
 
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       GITHUB_REPO_NAME: ${{ github.repository }}
-      GIT_CONFIG_GLOBAL: ${{ github.workspace }}/.gitconfig_temp
 
     steps:
       - name: Runner Info
