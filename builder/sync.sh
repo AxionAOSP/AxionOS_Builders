@@ -14,8 +14,9 @@ if [ -d "vendor/lineage-priv/keys" ] && [ "$(ls -A vendor/lineage-priv/keys 2>/d
     fi
 fi
 
+# Fast lock file cleanup (inside .repo only to avoid slow deep tree traversal)
 find .repo/ -name "*.lock" -delete 2>/dev/null
-find . -name ".git" -type d -exec sh -c 'rm -f "$1/index.lock" "$1/config.lock" "$1/shallow.lock"' _ {} \; 2>/dev/null
+find .repo/projects .repo/project-objects -name "index.lock" -o -name "config.lock" -o -name "shallow.lock" -delete 2>/dev/null
 
 # Discard uncommitted changes and untracked garbage in all active repositories to prevent sync failures
 if [ -d ".repo" ]; then
