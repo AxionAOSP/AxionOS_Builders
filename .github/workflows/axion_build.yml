@@ -164,7 +164,9 @@ jobs:
             --topic-release-json "$TOPIC_RELEASE_JSON" \
             --token "$TELEGRAM_TOKEN" \
             --build-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --source-dir "$AOSP_SOURCE_DIR"
+            --source-dir "$AOSP_SOURCE_DIR" &
+          SYNC_MONITOR_PID=$!
+          trap 'kill $SYNC_MONITOR_PID 2>/dev/null || true' EXIT
 
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -174,7 +176,8 @@ jobs:
           ${{ github.workspace }}/builder/tmux_runner.sh \
             "axion_build" \
             "$SYNC_CMD" \
-            "${{ github.workspace }}/sync.log"
+            "${{ github.workspace }}/sync.log" \
+            "${{ github.workspace }}/sync_progress.txt"
 
       - name: Build ROM
         id: build_rom

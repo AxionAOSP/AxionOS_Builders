@@ -34,6 +34,11 @@ while [ ! -f "$DONE_FILE" ]; do
                  print arr[1] "," arr[2] "," arr[4] > logfile;
                  fflush(logfile);
             }
+            match($0, /Syncing:\s*([0-9]+)%\s*\(([^)]+)\)/, sarr);
+            if (sarr[1] != "" && sarr[2] != "") {
+                 print sarr[1] "," sarr[2] > logfile;
+                 fflush(logfile);
+            }
         }'
     fi
     sleep 5

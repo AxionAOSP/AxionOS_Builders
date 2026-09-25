@@ -225,6 +225,32 @@ def main():
     if args.status in s_map: 
         update_redis(s_map[args.status])
 
+    if args.status == 'syncing':
+        if not os.path.exists(msg_id_file): return
+        msg_id = open(msg_id_file).read().strip()
+        last_text = ""
+        while True:
+            prog = "🔄 `Syncing Source...`"
+            p_file = os.path.join(workspace, "sync_progress.txt")
+            if os.path.exists(p_file):
+                try:
+                    line = open(p_file).readlines()[-1].strip()
+                    parts = line.split(',')
+                    if len(parts) >= 2:
+                        pct, counts = int(parts[0]), parts[1]
+                        bar = "▰" * (pct // 10) + "▱" * (10 - (pct // 10))
+                        prog = f"🔄 *SYNCING SOURCE*\n├ `[{bar}]` {pct}%\n└ *Repos* : `{escape_code(counts)}`"
+                        update_redis("Syncing Source", f"{pct}% ({counts})")
+                except: pass
+            new_text = f"🔄 *SYNCING SOURCE*\n{info_block}\n\n{prog}\n\n📊 [VIEW RUN]({args.build_url})"
+            if new_text != last_text:
+                try:
+                    bot.edit_message(args.chat_id, msg_id, new_text, parse_mode='MarkdownV2')
+                    last_text = new_text
+                except: pass
+            time.sleep(10)
+        return
+
     if args.status == 'monitoring':
         if not os.path.exists(msg_id_file): return
         msg_id = open(msg_id_file).read().strip()
