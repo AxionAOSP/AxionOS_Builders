@@ -15,10 +15,14 @@ cleanup() {
 }
 trap 'cleanup' SIGINT SIGTERM
 
-tmux kill-session -t "$SESSION_NAME" 2>/dev/null
-tmux new-session -d -s "$SESSION_NAME"
+# Check if session already exists; create only if missing
+if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    tmux new-session -d -s "$SESSION_NAME"
+fi
 
-tmux pipe-pane -t "$SESSION_NAME" "cat -u >> \"$LOG_FILE\""
+if [ -n "$LOG_FILE" ]; then
+    tmux pipe-pane -t "$SESSION_NAME" "cat -u >> \"$LOG_FILE\""
+fi
 rm -f "$EXIT_CODE_FILE" "$DONE_FILE"
 
 TMUX_CMD="set +e; $COMMAND; echo \$? > $EXIT_CODE_FILE; touch $DONE_FILE"

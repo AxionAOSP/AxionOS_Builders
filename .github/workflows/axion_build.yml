@@ -218,23 +218,28 @@ jobs:
       - name: Notify Success
         if: steps.build_rom.outputs.BUILD_SUCCESS == 'true'
         run: |
-          python3 builder/reporter.py \
-            --run-id "${{ github.run_id }}" \
+          NOTIFY_CMD="python3 ${{ github.workspace }}/builder/reporter.py \
+            --run-id \"${{ github.run_id }}\" \
             --status success \
-            --device "$DEVICE" \
-            --build-type "$RELEASETYPE" \
-            --release-status "No" \
-            --gms "$GMS_VARIANT" \
-            --full-clean "$FULLCLEAN" \
-            --upload-cdn "$UPLOAD_CDN" \
-            --user "$BUILD_USER" \
-            --chat-id "$TELEGRAM_CHAT_ID" \
-            --topic-builder "$TOPIC_BUILDER" \
-            --topic-error-logs "$TOPIC_ERROR_LOGS" \
-            --topic-release-json "$TOPIC_RELEASE_JSON" \
-            --token "$TELEGRAM_TOKEN" \
-            --build-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --source-dir "$AOSP_SOURCE_DIR"
+            --device \"$DEVICE\" \
+            --build-type \"$RELEASETYPE\" \
+            --release-status \"No\" \
+            --gms \"$GMS_VARIANT\" \
+            --full-clean \"$FULLCLEAN\" \
+            --upload-cdn \"$UPLOAD_CDN\" \
+            --user \"$BUILD_USER\" \
+            --chat-id \"$TELEGRAM_CHAT_ID\" \
+            --topic-builder \"$TOPIC_BUILDER\" \
+            --topic-error-logs \"$TOPIC_ERROR_LOGS\" \
+            --topic-release-json \"$TOPIC_RELEASE_JSON\" \
+            --token \"$TELEGRAM_TOKEN\" \
+            --build-url \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\" \
+            --source-dir \"$AOSP_SOURCE_DIR\""
+
+          ${{ github.workspace }}/builder/tmux_runner.sh \
+            "axion_build" \
+            "$NOTIFY_CMD" \
+            "${{ github.workspace }}/upload.log"
 
       - name: Notify Failure
         if: failure()
