@@ -33,10 +33,10 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 from telegram.request import HTTPXRequest
 from dotenv import load_dotenv
 
-from utils import BOT_TOKEN, REDIS_URL, fetch_db_from_github, get_redis, RedisPersistence, OWNER_ID
+from utils import BOT_TOKEN, REDIS_URL, fetch_db_from_github, get_redis, close_http_client, RedisPersistence, OWNER_ID
 
 from handlers.github import (
-    build_command, status_command, queue_command, cancel_command,
+    build_command, status_command, queue_command, cancel_command, cancel_all_command,
     handle_github_callbacks, get_workflow_runs, validate_command
 )
 from handlers.admin import (
@@ -83,10 +83,11 @@ async def set_bot_commands(app):
 
 async def sync_active_builds():
     """Syncs active/queued GitHub runs to Redis on startup"""
-    active_runs = await get_workflow_runs(status="in_progress") or []
-    queued_runs = await get_workflow_runs(status="queued") or []
-    runs = active_runs + queued_runs
-    
+    active_runs, queued_runs = await asyncio.gather(
+        get_workflow_runs(status="in_progress"),
+        get_workflow_runs(status="queued")
+    )
+    runs = (active_runs or []) + (queued_runs or [])
     if not runs: return
     
     r = await get_redis()
@@ -182,7 +183,6 @@ async def main():
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("queue", queue_command))
     app.add_handler(CommandHandler("cancel", cancel_command))
-    from handlers.github import cancel_all_command
     app.add_handler(CommandHandler("cancelall", cancel_all_command))
 
     app.add_handler(CallbackQueryHandler(handle_github_callbacks, pattern=r"^(build_).*"))
@@ -199,6 +199,7 @@ async def main():
         pass
     finally:
         logger.info("Shutting down...")
+        await close_http_client()
         await r.close()
         await app.updater.stop()
         await app.stop()

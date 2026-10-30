@@ -15,9 +15,15 @@ cleanup() {
 }
 trap 'cleanup' SIGINT SIGTERM
 
+# Unset outer TMUX variable so nested/sandboxed tmux uses TMUX_TMPDIR cleanly
+unset TMUX
+if [ -n "$TMUX_TMPDIR" ]; then
+    mkdir -p "$TMUX_TMPDIR" 2>/dev/null || true
+fi
+
 # Check if session already exists; create only if missing
 if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    tmux new-session -d -s "$SESSION_NAME"
+    tmux new-session -d -s "$SESSION_NAME" || exit 1
 fi
 
 if [ -n "$LOG_FILE" ]; then
@@ -26,26 +32,31 @@ fi
 rm -f "$EXIT_CODE_FILE" "$DONE_FILE"
 
 TMUX_CMD="set +e; $COMMAND; echo \$? > $EXIT_CODE_FILE; touch $DONE_FILE"
-tmux send-keys -t "$SESSION_NAME" "$TMUX_CMD" C-m
+tmux send-keys -t "$SESSION_NAME" "$TMUX_CMD" C-m || exit 1
 
 while [ ! -f "$DONE_FILE" ]; do
+    if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+        echo "❌ tmux session '$SESSION_NAME' terminated unexpectedly."
+        exit 1
+    fi
     if [ -n "$PROGRESS_FILE" ]; then
         tmux capture-pane -p -S -50 -t "$SESSION_NAME" | \
-        awk -v logfile="$PROGRESS_FILE" '{ 
+        awk -v logfile="$PROGRESS_FILE" '{
             gsub(/\x1b\[[0-9;]*m/, "");
-            match($0, /^\[\s*([0-9]+)%\s+([0-9]+\/[0-9]+)([^]]*)\]\s*(.*)/, arr);
-            if (arr[1] != "" && arr[2] != "") {
-                 print arr[1] "," arr[2] "," arr[4] > logfile;
-                 fflush(logfile);
+            if (match($0, /^\[\s*([0-9]+)%\s+([0-9]+\/[0-9]+)([^]]*)\]\s*(.*)/, arr) && arr[1] != "" && arr[2] != "") {
+                last_line = arr[1] "," arr[2] "," arr[4];
+            } else if (match($0, /Syncing:\s*([0-9]+)%\s*\(([^)]+)\)/, sarr) && sarr[1] != "" && sarr[2] != "") {
+                last_line = sarr[1] "," sarr[2];
             }
-            match($0, /Syncing:\s*([0-9]+)%\s*\(([^)]+)\)/, sarr);
-            if (sarr[1] != "" && sarr[2] != "") {
-                 print sarr[1] "," sarr[2] > logfile;
-                 fflush(logfile);
+        }
+        END {
+            if (last_line != "") {
+                print last_line > logfile;
+                close(logfile);
             }
         }'
     fi
-    sleep 5
+    sleep 2
 done
 
 tmux pipe-pane -t "$SESSION_NAME"

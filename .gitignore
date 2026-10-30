@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 *.log
+.build_msg_id
+progress.txt
+sync_progress.txt
+.venv/
+venv/

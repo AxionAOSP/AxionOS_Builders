@@ -16,12 +16,11 @@ fi
 
 # Fast lock file cleanup (inside .repo only to avoid slow deep tree traversal)
 find .repo/ -name "*.lock" -delete 2>/dev/null
-find .repo/projects .repo/project-objects -name "index.lock" -o -name "config.lock" -o -name "shallow.lock" -delete 2>/dev/null
 
 # Discard uncommitted changes and untracked garbage in all active repositories to prevent sync failures
 if [ -d ".repo" ]; then
     echo "Cleaning uncommitted or dirty changes in all repositories..."
-    repo forall -c "git reset --hard HEAD && git clean -qdf"
+    repo forall -j"$(nproc --all)" -c "git reset --hard HEAD && git clean -qdf"
 fi
 
 rm -rf .repo/local_manifests/*
@@ -35,7 +34,7 @@ echo "Initializing repo with: $AOSP_URL -b $AOSP_BRANCH"
 repo init -u "$AOSP_URL" -b "$AOSP_BRANCH" --depth=1 --git-lfs --no-repo-verify < /dev/null || exit 1
 
 if [ -n "$LOCAL_MANIFEST_URL" ]; then
-    curl -L -o "$LOCAL_MANIFEST_PATH" "$LOCAL_MANIFEST_URL" || exit 1
+    curl -fsSL -o "$LOCAL_MANIFEST_PATH" "$LOCAL_MANIFEST_URL" || exit 1
 fi
 
 repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all) || exit 1

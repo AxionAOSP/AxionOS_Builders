@@ -13,7 +13,8 @@ from datetime import datetime, timezone, timedelta
 from utils import (
     get_user_data, update_user_data, convert_to_raw_url,
     ROLE_ADMIN, ROLE_USER, ROLE_OWNER, OWNER_ID, restricted_command,
-    get_github_headers, get_redis, RK_CONFIG
+    is_user_admin, is_user_owner,
+    get_github_headers, get_http_client, get_redis, RK_CONFIG
 )
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
@@ -45,47 +46,59 @@ async def trigger_workflow(inputs):
     """Triggers GitHub Actions workflow"""
     url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/actions/workflows/{WORKFLOW_ID}/dispatches"
     payload = {"ref": GITHUB_BRANCH, "inputs": inputs}
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(url, headers=get_github_headers(), json=payload, timeout=20)
-            return resp.status_code == 204
-        except Exception as e:
-            print(f"[GH ERROR] Trigger failed: {e}")
-            return False
+    client = await get_http_client()
+    try:
+        resp = await client.post(url, headers=get_github_headers(), json=payload, timeout=20)
+        return resp.status_code == 204
+    except Exception as e:
+        print(f"[GH ERROR] Trigger failed: {e}")
+        return False
 
 async def get_workflow_runs(status=None):
     """Fetches recent workflow runs"""
     url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/actions/runs"
     params = {"branch": GITHUB_BRANCH, "per_page": 15}
     if status: params["status"] = status
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(url, headers=get_github_headers(), params=params, timeout=15)
-            if resp.status_code == 200: return resp.json().get("workflow_runs", [])
-        except Exception as e: print(f"[GH ERROR] Fetch runs failed: {e}")
+    client = await get_http_client()
+    try:
+        resp = await client.get(url, headers=get_github_headers(), params=params, timeout=15)
+        if resp.status_code == 200: return resp.json().get("workflow_runs", [])
+    except Exception as e:
+        print(f"[GH ERROR] Fetch runs failed: {e}")
     return []
 
 async def cancel_workflow_run(run_id):
     """Cancels a workflow run"""
     url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/actions/runs/{run_id}/cancel"
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(url, headers=get_github_headers(), timeout=15)
-            return resp.status_code == 202
-        except Exception as e:
-            print(f"[GH ERROR] Cancel failed: {e}")
-            return False
+    client = await get_http_client()
+    try:
+        resp = await client.post(url, headers=get_github_headers(), timeout=15)
+        return resp.status_code == 202
+    except Exception as e:
+        print(f"[GH ERROR] Cancel failed: {e}")
+        return False
 
 async def get_workflow_run(run_id):
     """Fetches details of a specific workflow run"""
     url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/actions/runs/{run_id}"
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(url, headers=get_github_headers(), timeout=15)
-            if resp.status_code == 200: return resp.json()
-        except Exception as e: print(f"[GH ERROR] Fetch run {run_id} failed: {e}")
+    client = await get_http_client()
+    try:
+        resp = await client.get(url, headers=get_github_headers(), timeout=15)
+        if resp.status_code == 200: return resp.json()
+    except Exception as e:
+        print(f"[GH ERROR] Fetch run {run_id} failed: {e}")
     return None
 
+async def is_runner_online():
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "pgrep", "-f", "Runner.Listener",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        return await proc.wait() == 0
+    except Exception:
+        return False
 @restricted_command
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows real-time build progress from Redis"""
@@ -211,10 +224,7 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     run_id = context.args[0]
     user = update.effective_user
-    user_data = await get_user_data(user.id)
-    role = user_data.get("role") if user_data else None
-    
-    is_privileged = (user.id == OWNER_ID or role in [ROLE_ADMIN, ROLE_OWNER])
+    is_privileged = await is_user_admin(user.id)
     status_msg = await update.message.reply_text(f"⏳ Verifying Run {run_id}...")
     
     run_info = await get_workflow_run(run_id)
@@ -237,9 +247,10 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text("❌ Failed to cancel.")
         asyncio.create_task(auto_delete_warn(status_msg))
 
+@restricted_command
 async def cancel_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels all queued/running builds (Owner only)"""
-    if update.effective_user.id != OWNER_ID:
+    if not is_user_owner(update.effective_user.id):
         return # Silent return for non-owners
 
     status_msg = await update.message.reply_text("🔍 Fetching all active runs...")
@@ -264,12 +275,10 @@ async def cancel_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    user_data = await get_user_data(user.id)
-    role = user_data.get("role") if user_data else None
 
     # PM restriction: Only Admin/Owner
     if chat.type == "private":
-        if not (user.id == OWNER_ID or role in [ROLE_ADMIN, ROLE_OWNER]):
+        if not await is_user_admin(user.id):
             warn = await update.message.reply_text("⛔ **Access Denied.**\nPrivate builds are restricted to Admins.")
             asyncio.create_task(auto_delete_warn(warn))
             return
@@ -279,41 +288,31 @@ async def build_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(auto_delete_warn(warn))
         return
 
-    # Check if runner is online
-    import subprocess
-    runner_online = False
-    try:
-        subprocess.check_call(["pgrep", "-f", "Runner.Listener"], stdout=subprocess.DEVNULL)
-        runner_online = True
-    except Exception:
-        pass
-
-    if not runner_online:
+    if not await is_runner_online():
         warn = await update.message.reply_text("runner is offline")
         asyncio.create_task(auto_delete_warn(warn))
         return
 
     dev = context.args[0]
     url = convert_to_raw_url(context.args[1]) if len(context.args) >= 2 else f"https://github.com/AxionAOSP/device_manifests/raw/main/{dev}.xml"
-    status_msg = await update.message.reply_text(f"🔎 Validating Manifest...")
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(url, timeout=10, follow_redirects=True)
-            if resp.status_code != 200:
-                await status_msg.edit_text("❌ **Manifest Not Found.**", parse_mode="Markdown")
-                asyncio.create_task(auto_delete_warn(status_msg))
-                return
-            root = ET.fromstring(resp.content)
-            if root.tag != "manifest":
-                await status_msg.edit_text("❌ **Invalid Manifest XML.**", parse_mode="Markdown")
-                asyncio.create_task(auto_delete_warn(status_msg))
-                return
-        except Exception as e:
-            await status_msg.edit_text(f"❌ **Validation Failed:** `{e}`", parse_mode="Markdown")
+    status_msg = await update.message.reply_text("🔎 Validating Manifest...")
+
+    client = await get_http_client()
+    try:
+        resp = await client.get(url, timeout=10)
+        if resp.status_code != 200:
+            await status_msg.edit_text("❌ **Manifest Not Found.**", parse_mode="Markdown")
             asyncio.create_task(auto_delete_warn(status_msg))
             return
-
+        root = ET.fromstring(resp.content)
+        if root.tag != "manifest":
+            await status_msg.edit_text("❌ **Invalid Manifest XML.**", parse_mode="Markdown")
+            asyncio.create_task(auto_delete_warn(status_msg))
+            return
+    except Exception as e:
+        await status_msg.edit_text(f"❌ **Validation Failed:** `{e}`", parse_mode="Markdown")
+        asyncio.create_task(auto_delete_warn(status_msg))
+        return
     await status_msg.delete()
     params = {
         'DEVICE': dev, 'RELEASETYPE': 'userdebug', 'GMS_VARIANT': 'GMS',
@@ -343,19 +342,23 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
 
     if query.data.startswith("build_action:"):
         act = query.data.split(":")[1]
+        p = context.user_data.get('pending_build')
         if act == "cancel":
+            if p and str(query.from_user.id) != p.get('BUILD_USER_ID') and not await is_user_admin(query.from_user.id):
+                await query.answer("⛔ Only the build requester or an Admin can cancel.", show_alert=True)
+                return
             await query.edit_message_text("❌ <b>Build Cancelled.</b>", parse_mode=ParseMode.HTML)
             context.user_data.pop('pending_build', None)
         elif act == "start":
-            p = context.user_data.get('pending_build')
             if not p:
                 await query.answer("Session Expired", show_alert=True)
                 return
+            if str(query.from_user.id) != p.get('BUILD_USER_ID'):
+                await query.answer("⛔ Only the user who opened this menu can start the build.", show_alert=True)
+                return
 
             # Security Check: Prevent non-admins from triggering Full Clean
-            user_data = await get_user_data(query.from_user.id)
-            role = user_data.get("role") if user_data else ROLE_USER
-            if p.get('FULLCLEAN') == 'Yes' and role not in [ROLE_ADMIN, ROLE_OWNER]:
+            if p.get('FULLCLEAN') == 'Yes' and not await is_user_admin(query.from_user.id):
                 await query.answer("⛔ Security Alert: Full Clean restricted to Admins.", show_alert=True)
                 return
 
@@ -366,7 +369,7 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
                 p["CHAT_ID"], p["TOPIC_ID"] = main_chan, "none"
                 if str(main_chan).startswith("-100"):
                     kb = InlineKeyboardMarkup([[InlineKeyboardButton("📣 VIEW CHANNEL", url=f"https://t.me/c/{str(main_chan)[4:]}")]])
-            
+
             await query.edit_message_text("⏳ <b>Dispatching...</b>", parse_mode=ParseMode.HTML)
             if await trigger_workflow(p):
                 await query.edit_message_text(f"✅ <b>Build Started!</b>\nDevice: <code>{p['DEVICE']}</code>", parse_mode=ParseMode.HTML, reply_markup=kb)
@@ -376,83 +379,101 @@ async def handle_github_callbacks(update: Update, context: ContextTypes.DEFAULT_
     elif query.data.startswith("build_set:"):
         k = query.data.split(":")[1]
         p = context.user_data.get('pending_build')
-        if p:
-            opts = BUILD_OPTIONS[k]
-            p[k] = opts[(opts.index(p[k]) + 1) % len(opts)]
-            try: await query.edit_message_reply_markup(get_build_menu_keyboard(p))
-            except: pass
+        if not p or str(query.from_user.id) != p.get('BUILD_USER_ID'):
+            await query.answer("⛔ Not your build session.", show_alert=True)
+            return
+        opts = BUILD_OPTIONS[k]
+        p[k] = opts[(opts.index(p[k]) + 1) % len(opts)]
+        try: await query.edit_message_reply_markup(get_build_menu_keyboard(p))
+        except: pass
         await query.answer()
 
 def resolve_remote_url(manifest_url, fetch):
     if not fetch:
         return ""
     fetch = fetch.strip()
-    if fetch.startswith("http://") or fetch.startswith("https://") or fetch.startswith("git://") or fetch.startswith("ssh://"):
+    if fetch.startswith(("http://", "https://", "git://", "ssh://")):
         return fetch.rstrip("/")
-    
-    # Resolve relative URL
+
+    # Resolve relative URL against the manifest's git repository base
     from urllib.parse import urlparse
     try:
         parsed = urlparse(manifest_url)
-        path_parts = [p for p in parsed.path.split("/") if p]
-        if path_parts:
-            path_parts.pop() # Discard filename
-            
-        if fetch.startswith(".."):
-            up_levels = fetch.split("/")
-            for part in up_levels:
-                if part == ".." and path_parts:
-                    path_parts.pop()
-                elif part != "..":
-                    path_parts.append(part)
+        host = parsed.netloc
+        parts = [p for p in parsed.path.split("/") if p]
+
+        if host == "raw.githubusercontent.com" and len(parts) >= 2:
+            host = "github.com"
+            repo_parts = parts[:2]
+        elif host in ("github.com", "gitlab.com", "bitbucket.org") and len(parts) >= 2:
+            repo_parts = parts[:2]
         else:
-            path_parts.append(fetch)
-            
-        resolved_path = "/" + "/".join(path_parts)
-        return f"{parsed.scheme}://{parsed.netloc}{resolved_path}".rstrip("/")
+            repo_parts = parts[:-1] if parts else []
+
+        for part in fetch.split("/"):
+            if not part or part == ".":
+                continue
+            if part == "..":
+                if repo_parts:
+                    repo_parts.pop()
+            else:
+                repo_parts.append(part)
+
+        resolved_path = "/" + "/".join(repo_parts) if repo_parts else ""
+        return f"{parsed.scheme}://{host}{resolved_path}".rstrip("/")
     except Exception as e:
         print(f"Error resolving relative fetch '{fetch}' against '{manifest_url}': {e}")
         return fetch.rstrip("/")
 
+_LS_REMOTE_SEM = asyncio.Semaphore(10)
+
 async def check_remote_ref(repo_url, revision):
     """LIGHTWEIGHT ls-remote check for repo reachability and revision existence"""
-    try:
-        full_url = repo_url if repo_url.endswith(".git") else f"{repo_url}.git"
-        
-        proc = await asyncio.create_subprocess_exec(
-            "git", "ls-remote", full_url,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate()
-        
-        if proc.returncode != 0:
-            err_msg = stderr.decode().strip() or "Repository unreachable or doesn't exist"
-            if "not found" in err_msg.lower() or "could not resolve host" in err_msg.lower():
-                err_msg = "Repository not found or unreachable"
-            return False, err_msg
-            
-        lines = stdout.decode().strip().split("\n")
-        if not revision:
-            return True, "Reachable (default branch)"
-            
-        if len(revision) == 40 and all(c in "0123456789abcdefABCDEF" for c in revision):
-            return True, "Reachable (SHA revision)"
-            
-        head_ref = f"refs/heads/{revision}"
-        tag_ref = f"refs/tags/{revision}"
-        
-        for line in lines:
-            if not line.strip(): continue
-            parts = line.split()
-            if len(parts) >= 2:
-                ref_name = parts[1]
-                if ref_name == head_ref or ref_name == tag_ref or ref_name.endswith(f"/{revision}"):
-                    return True, f"Found branch/tag: `{revision}`"
-                    
-        return False, f"Branch/Tag '{revision}' not found"
-    except Exception as e:
-        return False, f"Check failed: {str(e)}"
+    async with _LS_REMOTE_SEM:
+        proc = None
+        try:
+            full_url = repo_url if repo_url.endswith(".git") else f"{repo_url}.git"
+            env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+            proc = await asyncio.create_subprocess_exec(
+                "git", "ls-remote", full_url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+
+            if proc.returncode != 0:
+                err_msg = stderr.decode(errors="ignore").strip() or "Repository unreachable or doesn't exist"
+                if "not found" in err_msg.lower() or "could not resolve host" in err_msg.lower() or "terminal prompts disabled" in err_msg.lower():
+                    err_msg = "Repository not found or unreachable"
+                return False, err_msg
+
+            lines = stdout.decode(errors="ignore").strip().split("\n")
+            if not revision:
+                return True, "Reachable (default branch)"
+
+            if len(revision) == 40 and all(c in "0123456789abcdefABCDEF" for c in revision):
+                return True, "Reachable (SHA revision)"
+
+            head_ref = f"refs/heads/{revision}"
+            tag_ref = f"refs/tags/{revision}"
+
+            for line in lines:
+                if not line.strip(): continue
+                parts = line.split()
+                if len(parts) >= 2:
+                    ref_name = parts[1]
+                    if ref_name == head_ref or ref_name == tag_ref or ref_name.endswith(f"/{revision}"):
+                        return True, f"Found branch/tag: {revision}"
+
+            return False, f"Branch/Tag '{revision}' not found"
+        except asyncio.TimeoutError:
+            if proc and proc.returncode is None:
+                try: proc.kill()
+                except Exception: pass
+            return False, "Timed out checking remote repository"
+        except Exception as e:
+            return False, f"Check failed: {str(e)}"
 
 @restricted_command
 async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -470,18 +491,17 @@ async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await msg.delete()
         except: pass
 
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(url, timeout=15)
-            if resp.status_code != 200:
-                await status_msg.edit_text(f"❌ <b>Manifest download failed (HTTP {resp.status_code}).</b>", parse_mode=ParseMode.HTML)
-                asyncio.create_task(auto_delete(status_msg))
-                return
-        except Exception as e:
-            await status_msg.edit_text(f"❌ <b>Failed to download manifest:</b> <code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+    client = await get_http_client()
+    try:
+        resp = await client.get(url, timeout=15)
+        if resp.status_code != 200:
+            await status_msg.edit_text(f"❌ <b>Manifest download failed (HTTP {resp.status_code}).</b>", parse_mode=ParseMode.HTML)
             asyncio.create_task(auto_delete(status_msg))
             return
-
+    except Exception as e:
+        await status_msg.edit_text(f"❌ <b>Failed to download manifest:</b> <code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        asyncio.create_task(auto_delete(status_msg))
+        return
     try:
         root = ET.fromstring(resp.content)
         if root.tag != "manifest":

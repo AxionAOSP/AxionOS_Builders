@@ -3,11 +3,13 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from datetime import datetime
 import asyncio
-from utils import (
-    OWNER_ID, ADMIN_USER_IDS, ROLE_ADMIN, ROLE_USER, ROLE_OWNER, 
-    restricted_command, get_user_data, get_redis, RK_USERS
-)
+import os
+import shutil
 import json
+from utils import (
+    OWNER_ID, ADMIN_USER_IDS, ROLE_ADMIN, ROLE_USER, ROLE_OWNER,
+    restricted_command, get_user_data, is_user_admin, is_user_owner, get_redis, RK_USERS
+)
 
 async def auto_delete(msg, delay=60):
     await asyncio.sleep(delay)
@@ -17,7 +19,6 @@ async def auto_delete(msg, delay=60):
 @restricted_command
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows last 5 builds"""
-    import os
     chat_id = update.effective_chat.id
     last_mid = context.chat_data.get("last_history_mid")
     if last_mid:
@@ -53,7 +54,6 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @restricted_command
 async def full_history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends full history file"""
-    import os
     history_file = os.path.join(os.path.expanduser("~"), "build_history.json")
     if os.path.exists(history_file):
         with open(history_file, 'rb') as f:
@@ -63,17 +63,34 @@ async def full_history_command(update: Update, context: ContextTypes.DEFAULT_TYP
 @restricted_command
 async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Server health stats"""
-    import subprocess
     try:
-        disk = subprocess.check_output("df -h / | tail -1 | awk '{print $3 \"/\" $2 \" (\" $5 \")\"}'", shell=True).decode().strip()
-        ram = subprocess.check_output("free -h | grep Mem | awk '{print $3 \"/\" $2}'", shell=True).decode().strip()
-        load = subprocess.check_output("uptime | awk -F'load average:' '{ print $2 }'", shell=True).decode().strip()
-        runner_alive = "❌ Dead"
-        try:
-            subprocess.check_call(["pgrep", "-f", "Runner.Listener"], stdout=subprocess.DEVNULL)
-            runner_alive = "✅ Alive"
-        except: pass
+        du = shutil.disk_usage("/")
+        disk_pct = (du.used / du.total * 100) if du.total else 0
+        disk = f"{du.used / (1024**3):.0f}G/{du.total / (1024**3):.0f}G ({disk_pct:.0f}%)"
 
+        mem_total, mem_avail = 0, 0
+        with open("/proc/meminfo", "r") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    mem_total = int(line.split()[1])
+                elif line.startswith("MemAvailable:"):
+                    mem_avail = int(line.split()[1])
+                if mem_total and mem_avail:
+                    break
+        mem_used = max(0, mem_total - mem_avail)
+        ram = f"{mem_used / (1024**2):.1f}Gi/{mem_total / (1024**2):.1f}Gi"
+
+        l1, l5, l15 = os.getloadavg()
+        load = f"{l1:.2f}, {l5:.2f}, {l15:.2f}"
+
+        runner_alive = "❌ Dead"
+        proc = await asyncio.create_subprocess_exec(
+            "pgrep", "-f", "Runner.Listener",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        if await proc.wait() == 0:
+            runner_alive = "✅ Alive"
         msg = (
             f"<b>🖥️ SERVER HEALTH</b>\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"<b>💾 Disk (/)</b> : <code>{disk}</code>\n"
@@ -146,8 +163,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     user_data = await get_user_data(uid)
     role = user_data.get("role", ROLE_USER) if user_data else ROLE_USER
-    is_owner = (uid == OWNER_ID) or (role == ROLE_OWNER)
-    is_admin = is_owner or (role == ROLE_ADMIN) or (uid in ADMIN_USER_IDS)
+    is_owner = is_user_owner(uid) or (role == ROLE_OWNER)
+    is_admin = is_owner or await is_user_admin(uid)
 
     help_text = (
         "🤖 **AxionOS Bot Help**\n\n"

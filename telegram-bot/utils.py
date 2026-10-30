@@ -123,12 +123,29 @@ class RedisPersistence(BasePersistence):
     async def flush(self): pass
 
 _redis_pool = None
+_http_client = None
 
 async def get_redis():
     global _redis_pool
     if _redis_pool is None:
         _redis_pool = redis.from_url(REDIS_URL, decode_responses=True)
     return _redis_pool
+
+async def get_http_client():
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0, connect=10.0),
+            limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+            follow_redirects=True
+        )
+    return _http_client
+
+async def close_http_client():
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None
 
 def get_github_headers():
     return {
@@ -140,48 +157,48 @@ def get_github_headers():
 async def fetch_db_from_github():
     """Sync database from GitHub to Redis"""
     url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/contents/{DB_FILE_PATH}?ref={GITHUB_BRANCH}"
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(url, headers=get_github_headers(), timeout=15)
-            if resp.status_code == 200:
-                data = resp.json()
-                content = base64.b64decode(data['content']).decode('utf-8')
-                db = json.loads(content)
-                
-                r = await get_redis()
-                pipe = r.pipeline()
-                
-                pipe.delete(RK_CHATS)
-                chats = db.get("allowed_chats", [])
-                if chats: pipe.sadd(RK_CHATS, *chats)
-                
-                pipe.delete(RK_USERS)
-                users = db.get("users", {})
-                for uid, udata in users.items():
-                    pipe.hset(RK_USERS, uid, json.dumps(udata))
-                
-                # Restore configuration settings if present in the database.json
-                config = db.get("config", {})
-                if "main_output_channel" in config:
-                    channel = config["main_output_channel"]
-                    if channel:
-                        pipe.hset(RK_CONFIG, "main_output_channel", channel)
-                    else:
-                        pipe.hdel(RK_CONFIG, "main_output_channel")
-                
-                if "main_upload_stream" in config:
-                    stream = config["main_upload_stream"]
-                    if stream:
-                        pipe.hset(RK_CONFIG, "main_upload_stream", stream)
-                    else:
-                        pipe.hdel(RK_CONFIG, "main_upload_stream")
-                
-                pipe.hset(RK_CONFIG, "db_sha", data['sha'])
-                await pipe.execute()
-                logger.info("Redis cache refreshed from GitHub (including configuration settings)")
-                return db
-        except Exception as e:
-            logger.error(f"GitHub Fetch Failed: {e}")
+    client = await get_http_client()
+    try:
+        resp = await client.get(url, headers=get_github_headers(), timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            content = base64.b64decode(data['content']).decode('utf-8')
+            db = json.loads(content)
+
+            r = await get_redis()
+            pipe = r.pipeline()
+
+            pipe.delete(RK_CHATS)
+            chats = db.get("allowed_chats", [])
+            if chats: pipe.sadd(RK_CHATS, *chats)
+
+            pipe.delete(RK_USERS)
+            users = db.get("users", {})
+            for uid, udata in users.items():
+                pipe.hset(RK_USERS, uid, json.dumps(udata))
+
+            # Restore configuration settings if present in the database.json
+            config = db.get("config", {})
+            if "main_output_channel" in config:
+                channel = config["main_output_channel"]
+                if channel:
+                    pipe.hset(RK_CONFIG, "main_output_channel", channel)
+                else:
+                    pipe.hdel(RK_CONFIG, "main_output_channel")
+
+            if "main_upload_stream" in config:
+                stream = config["main_upload_stream"]
+                if stream:
+                    pipe.hset(RK_CONFIG, "main_upload_stream", stream)
+                else:
+                    pipe.hdel(RK_CONFIG, "main_upload_stream")
+
+            pipe.hset(RK_CONFIG, "db_sha", data['sha'])
+            await pipe.execute()
+            logger.info("Redis cache refreshed from GitHub (including configuration settings)")
+            return db
+    except Exception as e:
+        logger.error(f"GitHub Fetch Failed: {e}")
     return None
 
 async def save_db_to_github(commit_message="database: update from bot"):
@@ -190,11 +207,11 @@ async def save_db_to_github(commit_message="database: update from bot"):
     chats = await r.smembers(RK_CHATS)
     raw_users = await r.hgetall(RK_USERS)
     users = {uid: json.loads(udata) for uid, udata in raw_users.items()}
-    
+
     # Retrieve current configuration settings
     main_output_channel = await r.hget(RK_CONFIG, "main_output_channel")
     main_upload_stream = await r.hget(RK_CONFIG, "main_upload_stream")
-    
+
     db = {
         "users": users,
         "allowed_chats": list(chats),
@@ -204,11 +221,11 @@ async def save_db_to_github(commit_message="database: update from bot"):
         }
     }
     sha = await r.hget(RK_CONFIG, "db_sha")
-    
+
     url = f"https://api.github.com/repos/{GITHUB_REPO_NAME}/contents/{DB_FILE_PATH}"
     json_str = json.dumps(db, indent=2)
     b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
-    
+
     payload = {
         "message": commit_message,
         "content": b64_content,
@@ -217,19 +234,18 @@ async def save_db_to_github(commit_message="database: update from bot"):
         "committer": {"name": "github-actions[bot]", "email": "41898282+github-actions[bot]@users.noreply.github.com"},
         "author": {"name": "github-actions[bot]", "email": "41898282+github-actions[bot]@users.noreply.github.com"}
     }
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.put(url, headers=get_github_headers(), json=payload, timeout=20)
-            if resp.status_code in [200, 201]:
-                new_sha = resp.json()['content']['sha']
-                await r.hset(RK_CONFIG, "db_sha", new_sha)
-                logger.info(f"GitHub backup successful (including configuration settings): {commit_message}")
-                return True
-        except Exception as e:
-            logger.error(f"GitHub Sync Failed: {e}")
-    return False
 
+    client = await get_http_client()
+    try:
+        resp = await client.put(url, headers=get_github_headers(), json=payload, timeout=20)
+        if resp.status_code in [200, 201]:
+            new_sha = resp.json()['content']['sha']
+            await r.hset(RK_CONFIG, "db_sha", new_sha)
+            logger.info(f"GitHub backup successful (including configuration settings): {commit_message}")
+            return True
+    except Exception as e:
+        logger.error(f"GitHub Sync Failed: {e}")
+    return False
 async def is_chat_allowed(chat_id):
     """Check if chat is approved"""
     if TEST_GROUP_ID != 0 and chat_id == TEST_GROUP_ID:
@@ -257,6 +273,16 @@ async def get_user_data(user_id):
     data = await r.hget(RK_USERS, str(user_id))
     return json.loads(data) if data else None
 
+
+def is_user_owner(user_id):
+    return int(user_id) == OWNER_ID
+
+async def is_user_admin(user_id):
+    uid = int(user_id)
+    if uid == OWNER_ID or uid in ADMIN_USER_IDS:
+        return True
+    user_data = await get_user_data(uid)
+    return bool(user_data and user_data.get("role") in (ROLE_ADMIN, ROLE_OWNER))
 async def update_user_data(user_id, modifier_func, commit_msg=None):
     """Update user in Redis + sync to GitHub in background"""
     r = await get_redis()

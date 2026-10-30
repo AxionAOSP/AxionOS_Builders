@@ -5,22 +5,17 @@ from datetime import datetime, timezone
 import asyncio
 import json
 from utils import (
-    OWNER_ID, ROLE_ADMIN, ROLE_USER, ROLE_OWNER, 
+    OWNER_ID, ROLE_ADMIN, ROLE_USER, ROLE_OWNER,
     restricted_command, get_redis, get_user_data, update_user_data,
-    fetch_db_from_github, save_db_to_github, RK_CHATS, RK_USERS
+     is_user_admin, is_user_owner,
+    fetch_db_from_github, save_db_to_github, RK_CHATS, RK_USERS, RK_CONFIG
 )
 
 async def approve_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
-    sender_id = user.id
 
-    from utils import ADMIN_USER_IDS
-    sender_data = await get_user_data(sender_id)
-    sender_role = sender_data.get("role") if sender_data else None
-    is_admin = (sender_id == OWNER_ID) or (sender_id in ADMIN_USER_IDS) or sender_role in [ROLE_ADMIN, ROLE_OWNER]
-    
-    if not is_admin:
+    if not await is_user_admin(user.id):
         if chat.type == "private": await update.message.reply_text("⛔ **Access Denied.**")
         return
 
@@ -44,13 +39,8 @@ async def disapprove_chat_command(update: Update, context: ContextTypes.DEFAULT_
     """Removes chat from approved list"""
     user = update.effective_user
     chat = update.effective_chat
-    sender_id = user.id
 
-    sender_data = await get_user_data(sender_id)
-    sender_role = sender_data.get("role") if sender_data else None
-    is_admin = (sender_id == OWNER_ID) or sender_role in [ROLE_ADMIN, ROLE_OWNER]
-    
-    if not is_admin:
+    if not await is_user_admin(user.id):
         await update.message.reply_text("⛔ **Access Denied.**")
         return
 
@@ -67,13 +57,8 @@ async def disapprove_chat_command(update: Update, context: ContextTypes.DEFAULT_
 async def save_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Force Redis -> GitHub sync"""
     user = update.effective_user
-    sender_id = user.id
-    
-    sender_data = await get_user_data(sender_id)
-    sender_role = sender_data.get("role") if sender_data else None
-    is_admin = (sender_id == OWNER_ID) or sender_role in [ROLE_ADMIN, ROLE_OWNER]
 
-    if not is_admin:
+    if not await is_user_admin(user.id):
         await update.message.reply_text("⛔ Admin only.")
         return
     
@@ -89,7 +74,7 @@ async def save_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def sync_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Force GitHub -> Redis sync"""
     user = update.effective_user
-    if user.id != OWNER_ID:
+    if not is_user_owner(user.id):
         await update.message.reply_text("⛔ Owner only.")
         return
     
@@ -139,7 +124,7 @@ async def resolve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def announce_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Broadcasts message to all groups (Owner only)"""
     user = update.effective_user
-    if user.id != OWNER_ID:
+    if not is_user_owner(user.id):
         await update.message.reply_text("⛔ **Access Denied.**")
         return
 
@@ -156,7 +141,6 @@ async def announce_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     r = await get_redis()
-    from utils import RK_CONFIG
     chats = list(await r.smembers(RK_CHATS))
     main_chan = await r.hget(RK_CONFIG, "main_output_channel")
     if main_chan and main_chan not in chats: chats.append(main_chan)
@@ -192,11 +176,7 @@ async def announce_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_role_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sets user role (Admin only)"""
     user = update.effective_user
-    sender_data = await get_user_data(user.id)
-    sender_role = sender_data.get("role") if sender_data else None
-
-    # Allow Admins and Owner to set roles
-    if not (user.id == OWNER_ID or sender_role in [ROLE_ADMIN, ROLE_OWNER]):
+    if not await is_user_admin(user.id):
         await update.message.reply_text("⛔ **Access Denied.**")
         return
 
@@ -236,9 +216,7 @@ async def set_role_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def remove_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Removes a maintainer (Admin only)"""
     user = update.effective_user
-    sender_data = await get_user_data(user.id)
-    sender_role = sender_data.get("role") if sender_data else None
-    if not (user.id == OWNER_ID or sender_role in [ROLE_ADMIN, ROLE_OWNER]):
+    if not await is_user_admin(user.id):
         await update.message.reply_text("⛔ **Access Denied.**")
         return
 
@@ -260,14 +238,11 @@ async def remove_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def list_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows approved groups and main channel"""
     user = update.effective_user
-    sender_data = await get_user_data(user.id)
-    sender_role = sender_data.get("role") if sender_data else None
-    if not (user.id == OWNER_ID or sender_role in [ROLE_ADMIN, ROLE_OWNER]):
+    if not await is_user_admin(user.id):
         await update.message.reply_text("⛔ **Access Denied.**")
         return
 
     r = await get_redis()
-    from utils import RK_CONFIG
     main_chan = await r.hget(RK_CONFIG, "main_output_channel")
     upload_stream = await r.hget(RK_CONFIG, "main_upload_stream") or "gofile"
     groups = await r.smembers(RK_CHATS)
@@ -285,9 +260,7 @@ async def list_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def set_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sets main output channel"""
     user = update.effective_user
-    sender_data = await get_user_data(user.id)
-    sender_role = sender_data.get("role") if sender_data else None
-    if not (user.id == OWNER_ID or sender_role in [ROLE_ADMIN, ROLE_OWNER]):
+    if not await is_user_admin(user.id):
         await update.message.reply_text("⛔ Admin only.")
         return
 
@@ -301,7 +274,6 @@ async def set_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     r = await get_redis()
-    from utils import RK_CONFIG
     await r.hset(RK_CONFIG, "main_output_channel", target)
     await update.message.reply_text(f"✅ **Main Channel Set:** <code>{target}</code>", parse_mode="HTML")
 
@@ -309,14 +281,11 @@ async def set_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def remove_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Removes main output channel"""
     user = update.effective_user
-    sender_data = await get_user_data(user.id)
-    sender_role = sender_data.get("role") if sender_data else None
-    if not (user.id == OWNER_ID or sender_role in [ROLE_ADMIN, ROLE_OWNER]):
+    if not await is_user_admin(user.id):
         await update.message.reply_text("⛔ Admin only.")
         return
 
     r = await get_redis()
-    from utils import RK_CONFIG
     await r.hdel(RK_CONFIG, "main_output_channel")
     await update.message.reply_text("✅ **Main Channel Removed.**")
 
@@ -324,15 +293,11 @@ async def remove_channel_command(update: Update, context: ContextTypes.DEFAULT_T
 async def usepd_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Toggle or set Pixeldrain as the main upload stream"""
     user = update.effective_user
-    sender_data = await get_user_data(user.id)
-    sender_role = sender_data.get("role") if sender_data else None
-    if not (user.id == OWNER_ID or sender_role in [ROLE_ADMIN, ROLE_OWNER]):
+    if not await is_user_admin(user.id):
         await update.message.reply_text("⛔ Admin only.")
         return
 
     r = await get_redis()
-    from utils import RK_CONFIG
-    
     current_stream = await r.hget(RK_CONFIG, "main_upload_stream") or "gofile"
     
     if context.args:

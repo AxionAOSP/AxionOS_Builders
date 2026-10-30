@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
 import os
 import sys
+
+custom_lib_path = os.path.expanduser("~/pylib")
+if os.path.isdir(custom_lib_path) and custom_lib_path not in sys.path:
+    sys.path.insert(0, custom_lib_path)
+
 import argparse
 import requests
 import json
-import redis
 import subprocess
 import time
 import re
 import hashlib
+import threading
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+try:
+    import redis
+except ImportError:
+    redis = None
 try:
     import boto3
 except ImportError:
@@ -16,11 +27,6 @@ except ImportError:
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from utils.telegram import TelegramBot
-
-custom_lib_path = os.path.expanduser("~/pylib")
-if os.path.isdir(custom_lib_path) and custom_lib_path not in sys.path:
-    sys.path.insert(0, custom_lib_path)
-
 try:
     from dotenv import load_dotenv
     paths = ['.', '..', 'telegram-bot', '../telegram-bot']
@@ -58,12 +64,26 @@ def escape_code(text):
     return text.replace('\\', '\\\\').replace('`', '\\`')
 
 def compute_sha256(filepath):
-    sha256_hash = hashlib.sha256()
     with open(filepath, "rb") as f:
-        for byte_block in iter(lambda: f.read(4096), b""):
+        if hasattr(hashlib, "file_digest"):
+            return hashlib.file_digest(f, "sha256").hexdigest()
+        sha256_hash = hashlib.sha256()
+        for byte_block in iter(lambda: f.read(1024 * 1024), b""):
             sha256_hash.update(byte_block)
-    return sha256_hash.hexdigest()
+        return sha256_hash.hexdigest()
 
+_thread_local = threading.local()
+
+def get_upload_session():
+    session = getattr(_thread_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.headers.update({'User-Agent': 'Mozilla/5.0'})
+        retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504], allowed_methods=frozenset(['POST']))
+        adapter = HTTPAdapter(max_retries=retries, pool_connections=8, pool_maxsize=8)
+        session.mount("https://", adapter)
+        _thread_local.session = session
+    return session
 def upload_to_r2(filepath, folder):
     access_key = os.environ.get("R2_ACCESS_KEY")
     secret_key = os.environ.get("R2_SECRET_KEY")
@@ -76,43 +96,38 @@ def upload_to_r2(filepath, folder):
 
     try:
         endpoint = f"https://{account_id}.r2.cloudflarestorage.com"
-        s3 = boto3.client('s3', endpoint_url=endpoint, 
-                         aws_access_key_id=access_key, 
-                         aws_secret_access_key=secret_key, 
+        s3 = boto3.client('s3', endpoint_url=endpoint,
+                         aws_access_key_id=access_key,
+                         aws_secret_access_key=secret_key,
                          region_name='auto')
-        
+
         filename = os.path.basename(filepath)
         key = f"{folder}/{filename}"
         sha256 = compute_sha256(filepath)
-        
+
         extra_args = {'Metadata': {'sha256': sha256}}
         s3.upload_file(filepath, bucket, key, ExtraArgs=extra_args)
-        return f"{cdn_domain}/{key}"
-    except:
+        return f"{cdn_domain.rstrip('/')}/{key}"
+    except Exception:
         return None
 
-def upload_to_gofile(file_path):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    session = requests.Session()
-    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504], allowed_methods=frozenset(['POST']))
-    session.mount("https://", HTTPAdapter(max_retries=retries))
+def upload_to_gofile(file_path, session=None):
+    sess = session or get_upload_session()
     try:
         with open(file_path, 'rb') as f:
-            resp = session.post("https://upload.gofile.io/uploadFile", files={'file': f}, headers=headers, timeout=600)
+            resp = sess.post("https://upload.gofile.io/uploadFile", files={'file': f}, timeout=600)
             data = resp.json()
             return data['data']['downloadPage'] if data.get('status') == 'ok' else None
-    except: return None
+    except Exception:
+        return None
 
-def upload_to_pixeldrain(file_path):
+def upload_to_pixeldrain(file_path, session=None):
     api_key = os.environ.get("PD_API_KEY") or os.environ.get("PIXELDRAIN_API_KEY")
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    session = requests.Session()
-    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504], allowed_methods=frozenset(['POST']))
-    session.mount("https://", HTTPAdapter(max_retries=retries))
+    sess = session or get_upload_session()
     try:
         auth = ("", api_key) if api_key else None
         with open(file_path, 'rb') as f:
-            resp = session.post("https://pixeldrain.com/api/file", files={'file': f}, auth=auth, headers=headers, timeout=600)
+            resp = sess.post("https://pixeldrain.com/api/file", files={'file': f}, auth=auth, timeout=600)
             data = resp.json()
             if data.get('success') or resp.status_code == 201:
                 file_id = data.get('id')
@@ -126,57 +141,78 @@ def upload_to_pixeldrain(file_path):
 def get_file_tail(file_path, lines=200):
     try:
         return subprocess.check_output(['tail', '-n', str(lines), file_path]).decode('utf-8', errors='ignore')
-    except: return "Error reading log."
+    except Exception:
+        return ""
+
+def read_last_line(file_path):
+    try:
+        with open(file_path, 'r', errors='ignore') as f:
+            tail = deque(f, maxlen=1)
+            return tail[0].strip() if tail else ""
+    except Exception:
+        return ""
 
 def get_error_summary(log_path):
     if not log_path or not os.path.exists(log_path): return None
     try:
-        with open(log_path, 'r', errors='ignore') as f:
-            lines = f.readlines()[-100:]
-        keywords = ["error:", "fatal error:", "failed:", "undefined module"]
+        lines = get_file_tail(log_path, 100).splitlines()
+        keywords = ("error:", "fatal error:", "failed:", "undefined module")
         error_lines = []
+        seen = set()
         for line in lines:
-            if any(kw in line.lower() for kw in keywords) and line.strip() not in error_lines:
-                error_lines.append(line.strip())
+            stripped = line.strip()
+            if stripped and stripped not in seen and any(kw in stripped.lower() for kw in keywords):
+                seen.add(stripped)
+                error_lines.append(stripped)
         last_3 = error_lines[-3:]
         if not last_3: return None
         summary = "⚠️ *ERROR SUMMARY*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
         for err in last_3: summary += f"• `{escape_code(err)}` \n"
         return summary + "━━━━━━━━━━━━━━━━━━━━━━━━"
-    except: return None
+    except Exception:
+        return None
 
 def record_history(device, user, status, artifacts=None):
     history_file = os.path.expanduser("~/build_history.json")
     record = {"device": device, "user": user, "status": status, "timestamp": int(time.time()), "artifacts": artifacts or {}}
     try:
-        history = json.load(open(history_file)) if os.path.exists(history_file) else []
+        history = []
+        if os.path.exists(history_file):
+            with open(history_file, 'r') as f:
+                history = json.load(f)
         history.append(record)
-        json.dump(history, open(history_file, 'w'), indent=4)
-    except: pass
+        with open(history_file, 'w') as f:
+            json.dump(history, f, indent=4)
+    except Exception:
+        pass
 
 def create_telegram_link(chat_id, topic_id, message_id):
     cid = str(chat_id).replace("-100", "")
-    # Use standard message link format. Topic ID is usually not needed in the URL path.
     return f"https://t.me/c/{cid}/{message_id}"
 
 def main():
+    default_run_id = os.environ.get('GITHUB_RUN_ID', '0')
+    default_server = os.environ.get('GITHUB_SERVER_URL', 'https://github.com')
+    default_repo = os.environ.get('GITHUB_REPOSITORY') or os.environ.get('GITHUB_REPO_NAME', '')
+    default_build_url = f"{default_server}/{default_repo}/actions/runs/{default_run_id}" if default_repo else ""
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--status', required=True, choices=['started', 'syncing', 'building', 'monitoring', 'success', 'failure', 'aborted'])
-    parser.add_argument('--device', required=True)
-    parser.add_argument('--build-type', required=True)
-    parser.add_argument('--gms', required=True)
-    parser.add_argument('--user', required=True)
-    parser.add_argument('--chat-id', required=True)
-    parser.add_argument('--topic-builder', required=True)
-    parser.add_argument('--topic-error-logs', required=True)
-    parser.add_argument('--topic-release-json', required=True)
-    parser.add_argument('--token', required=True)
-    parser.add_argument('--build-url', required=True)
-    parser.add_argument('--run-id', required=True)
-    parser.add_argument('--release-status', required=True)
-    parser.add_argument('--source-dir', required=True)
-    parser.add_argument('--full-clean', default="No")
-    parser.add_argument('--upload-cdn', default="No")
+    parser.add_argument('--device', default=os.environ.get('DEVICE'))
+    parser.add_argument('--build-type', default=os.environ.get('RELEASETYPE', 'userdebug'))
+    parser.add_argument('--gms', default=os.environ.get('GMS_VARIANT', 'GMS'))
+    parser.add_argument('--user', default=os.environ.get('BUILD_USER', 'GitHub-Action'))
+    parser.add_argument('--chat-id', default=os.environ.get('TELEGRAM_CHAT_ID'))
+    parser.add_argument('--topic-builder', default=os.environ.get('TOPIC_BUILDER', 'none'))
+    parser.add_argument('--topic-error-logs', default=os.environ.get('TOPIC_ERROR_LOGS', 'none'))
+    parser.add_argument('--topic-release-json', default=os.environ.get('TOPIC_RELEASE_JSON', 'none'))
+    parser.add_argument('--token', default=os.environ.get('TELEGRAM_TOKEN'))
+    parser.add_argument('--build-url', default=default_build_url)
+    parser.add_argument('--run-id', default=default_run_id)
+    parser.add_argument('--release-status', default="No")
+    parser.add_argument('--source-dir', default=os.environ.get('AOSP_SOURCE_DIR', ''))
+    parser.add_argument('--full-clean', default=os.environ.get('FULLCLEAN', 'No'))
+    parser.add_argument('--upload-cdn', default=os.environ.get('UPLOAD_CDN', 'No'))
     args = parser.parse_args()
 
     bot = TelegramBot(args.token)
@@ -194,9 +230,9 @@ def main():
         f"━━━━━━━━━━━━━━━━━━━━━━━━"
     )
 
-    redis_url = os.environ.get("REDIS_URL") or "redis://localhost:6379/4"
-    try: redis_client = redis.from_url(redis_url, decode_responses=True)
-    except: redis_client = None
+    redis_url = os.environ.get("REDIS_URL") or "redis://localhost:16379/4"
+    try: redis_client = redis.from_url(redis_url, decode_responses=True) if redis else None
+    except Exception: redis_client = None
 
     def update_redis(s, p=None, m_id=None):
         if not redis_client: return
@@ -225,58 +261,69 @@ def main():
     if args.status in s_map: 
         update_redis(s_map[args.status])
 
-    if args.status == 'syncing':
-        msg_id = None
+    def resolve_message_id():
         if os.path.exists(msg_id_file):
-            try: msg_id = open(msg_id_file).read().strip()
-            except: pass
-        if not msg_id and redis_client:
+            try:
+                with open(msg_id_file, 'r') as f:
+                    mid = f.read().strip()
+                    if mid: return mid
+            except Exception:
+                pass
+        if redis_client:
             try:
                 raw = redis_client.get(f"build_status:{args.device}")
                 if raw:
-                    d = json.loads(raw)
-                    msg_id = d.get("message_id")
-            except: pass
+                    return json.loads(raw).get("message_id")
+            except Exception:
+                pass
+        return None
+
+    if args.status == 'syncing':
+        msg_id = resolve_message_id()
         if not msg_id:
             return
 
         last_text = ""
+        p_file = os.path.join(workspace, "sync_progress.txt")
         while True:
             prog = "🔄 `Syncing Source...`"
-            p_file = os.path.join(workspace, "sync_progress.txt")
             if os.path.exists(p_file):
                 try:
-                    line = open(p_file).readlines()[-1].strip()
+                    line = read_last_line(p_file)
                     parts = line.split(',')
                     if len(parts) >= 2:
                         pct, counts = int(parts[0]), parts[1]
                         bar = "▰" * (pct // 10) + "▱" * (10 - (pct // 10))
                         prog = f"🔄 *SYNCING SOURCE*\n├ `[{bar}]` {pct}%\n└ *Repos* : `{escape_code(counts)}`"
                         update_redis("Syncing Source", f"{pct}% ({counts})")
-                except: pass
+                except Exception:
+                    pass
             new_text = f"🔄 *SYNCING SOURCE*\n{info_block}\n\n{prog}\n\n📊 [VIEW RUN]({args.build_url})"
             if new_text != last_text:
                 try:
                     bot.edit_message(args.chat_id, msg_id, new_text, parse_mode='MarkdownV2')
                     last_text = new_text
-                except: pass
+                except Exception:
+                    pass
             time.sleep(10)
         return
 
     if args.status == 'monitoring':
-        if not os.path.exists(msg_id_file): return
-        msg_id = open(msg_id_file).read().strip()
+        msg_id = resolve_message_id()
+        if not msg_id:
+            return
         last_text = ""
+        p_file = os.path.join(workspace, "progress.txt")
         while True:
             prog, prog_redis = "`Preparing...`", "Preparing"
-            p_file = os.path.join(workspace, "progress.txt")
+            desc = ""
             if os.path.exists(p_file):
                 try:
-                    line = open(p_file).readlines()[-1].strip()
+                    line = read_last_line(p_file)
                     parts = line.split(',')
                     if len(parts) >= 3:
                         pct, counts, desc = int(parts[0]), parts[1], parts[2].lower()
-                        if any(x in desc for x in ["signing", "ota zip", "json"]):
+                        if any(x in desc for x in ("signing", "ota zip", "json")):
                             prog = f"⚙️ `{escape_code(desc.title())}...`"
                             prog_redis = desc.title()
                         elif re.search(r"bootstrap|analyzing|initializing", desc):
@@ -286,15 +333,17 @@ def main():
                             bar = "▰" * (pct // 10) + "▱" * (10 - (pct // 10))
                             prog = f"🚀 *LIVE MONITORING*\n├ `[{bar}]` {pct}%\n└ *Jobs* : `{escape_code(counts)}`"
                             prog_redis = f"{pct}% ({counts})"
-                except: pass
+                except Exception:
+                    pass
             update_redis("Building", prog_redis)
-            header = "🔐 *SIGNING*" if "signing" in (locals().get('desc', '')) else "📦 *PACKAGING*" if "ota zip" in (locals().get('desc', '')) else "🔨 *BUILDING*"
+            header = "🔐 *SIGNING*" if "signing" in desc else "📦 *PACKAGING*" if "ota zip" in desc else "🔨 *BUILDING*"
             new_text = f"{header}\n{info_block}\n\n{prog}\n\n📊 [VIEW RUN]({args.build_url})"
             if new_text != last_text:
                 try:
                     bot.edit_message(args.chat_id, msg_id, new_text, parse_mode='MarkdownV2')
                     last_text = new_text
-                except: pass
+                except Exception:
+                    pass
             time.sleep(10)
         return
 
@@ -303,20 +352,25 @@ def main():
             try:
                 redis_client.delete(f"build_status:{args.device}")
                 if redis_client.get("active_build_device") == args.device: redis_client.delete("active_build_device")
-            except: pass
+            except Exception:
+                pass
         if os.path.exists(msg_id_file):
             try:
-                mid = open(msg_id_file).read().strip()
-                bot.delete_message(args.chat_id, mid)
+                with open(msg_id_file, 'r') as f:
+                    mid = f.read().strip()
+                if mid:
+                    bot.delete_message(args.chat_id, mid)
                 os.remove(msg_id_file)
-            except: pass
+            except Exception:
+                pass
 
     if args.status == 'started':
         msg = f"🚀 *BUILD INITIALIZED*\n{info_block}\n\n📊 [VIEW RUN]({args.build_url})"
         resp = bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2')
-        if resp and 'result' in resp: 
+        if resp and 'result' in resp:
             m_id = str(resp['result']['message_id'])
-            open(msg_id_file, 'w').write(m_id)
+            with open(msg_id_file, 'w') as f:
+                f.write(m_id)
             update_redis("Initializing", m_id=m_id)
     elif args.status == 'aborted':
         record_history(args.device, args.user, "ABORTED")
@@ -337,11 +391,10 @@ def main():
         msg = f"❌ *BUILD FAILED*\n{info_block}\n\n{summary}\n\n📋 *Log* : {log_link}\n📊 [VIEW RUN]({args.build_url})"
         bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2')
     elif args.status == 'success':
-        time.sleep(10)
         rom_file = None
         build_log = os.path.join(workspace, "build.log")
         if os.path.exists(build_log):
-            for line in reversed(open(build_log).readlines()):
+            for line in reversed(get_file_tail(build_log, 500).splitlines()):
                 if "Package Complete:" in line:
                     path = line.split("Package Complete:")[-1].strip()
                     if os.path.exists(path): rom_file = path
@@ -350,7 +403,7 @@ def main():
         if not rom_file:
             bot.send_message(args.chat_id, "⚠️ **Success but Artifact Not Found**", topic_id=args.topic_builder)
             return
-        
+
         # Determine upload stream from Redis
         upload_stream = "gofile"
         if redis_client:
@@ -359,16 +412,13 @@ def main():
             except Exception as e:
                 print(f"Failed to get upload stream from Redis: {e}")
 
-        # Upload function with automatic fallback to Gofile
         def upload_file_with_fallback(file_path):
             if upload_stream == "pixeldrain":
                 link = upload_to_pixeldrain(file_path)
                 if link:
                     return link
                 print(f"⚠️ Pixeldrain upload failed for {file_path}. Falling back to Gofile...")
-                return upload_to_gofile(file_path)
             return upload_to_gofile(file_path)
-
         # Locate target files zip if upload_cdn is enabled
         target_files_zip = None
         if args.upload_cdn == "Yes":
@@ -380,38 +430,33 @@ def main():
                         target_files_zip = file_path
                         break
 
-        # If upload_cdn is enabled (release build) and we have target_files_zip:
-        # 1. target_files_zip goes to Gofile/Pixeldrain (free storage stream, labeled as TARGET FILES)
-        # 2. rom_file goes to the premium R2 CDN (labeled as CDN MIRROR)
-        # Otherwise, the rom_file goes to Gofile/Pixeldrain, and R2 CDN is not used.
-        main_upload_file = rom_file
-        if args.upload_cdn == "Yes" and target_files_zip:
-            main_upload_file = target_files_zip
+        main_upload_file = target_files_zip if (args.upload_cdn == "Yes" and target_files_zip) else rom_file
 
-        g_link = upload_file_with_fallback(main_upload_file) or "Upload Failed"
-        
-        cdn_link = None
-        if args.upload_cdn == "Yes":
-            cdn_link = upload_to_r2(rom_file, args.device)
-        
-        extras = {}
-        for img in ["boot.img", "recovery.img", "vendor_boot.img", "init_boot.img"]:
-            p = os.path.join(out_dir, img)
-            if os.path.exists(p):
-                link = upload_file_with_fallback(p)
-                if link: extras[img] = link
-
-        json_url = ""
-        # Map variants to their respective output directories
         variant_dir = "VANILLA" if args.gms.upper() == "VANILLA" else "GMS"
-        
         gms_p = os.path.join(out_dir, variant_dir, f"{args.device}.json")
         if not os.path.exists(gms_p):
-             gms_p = os.path.join(out_dir, f"{args.device}.json")
-             
-        if os.path.exists(gms_p): 
-            json_url = upload_file_with_fallback(gms_p) or ""
+            gms_p = os.path.join(out_dir, f"{args.device}.json")
 
+        extra_images = [
+            (img, os.path.join(out_dir, img))
+            for img in ("boot.img", "recovery.img", "vendor_boot.img", "init_boot.img")
+            if os.path.exists(os.path.join(out_dir, img))
+        ]
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            fut_main = pool.submit(upload_file_with_fallback, main_upload_file)
+            fut_cdn = pool.submit(upload_to_r2, rom_file, args.device) if args.upload_cdn == "Yes" else None
+            fut_extras = {img: pool.submit(upload_file_with_fallback, p) for img, p in extra_images}
+            fut_json = pool.submit(upload_file_with_fallback, gms_p) if os.path.exists(gms_p) else None
+
+            g_link = fut_main.result() or "Upload Failed"
+            cdn_link = fut_cdn.result() if fut_cdn else None
+            extras = {}
+            for img, fut in fut_extras.items():
+                link = fut.result()
+                if link:
+                    extras[img] = link
+            json_url = (fut_json.result() or "") if fut_json else ""
         record_history(args.device, args.user, "SUCCESS", artifacts={"rom": g_link, "cdn_rom": cdn_link, **extras, "ota_json": json_url})
         
         btns = []
