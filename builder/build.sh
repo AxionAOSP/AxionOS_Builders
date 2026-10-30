@@ -1,8 +1,7 @@
-#!/bin/bash
+#!/bin/bash -l
 DEVICE="$1"
 RELEASETYPE="$2"
 FULLCLEAN="$3"
-
 case "$GMS_VARIANT" in
     "GMS") AXION_VARIANT="gms" ;;
     "PICO") AXION_VARIANT="pico" ;;

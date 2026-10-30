@@ -117,23 +117,19 @@ The build pipeline runner executes on GitHub's ecosystem. You **must NOT** save 
 ## 🛠️ Prerequisites
 
 Install all required system and builder dependencies:
-
 ```bash
-pip install -r requirements.txt
+pip install --target ~/pylib -r requirements.txt
 ```
-
 ---
 
-## 🖥️ Monitoring & Debugging
+## 🖥️ Live Process Monitoring
 
-### Live Logs
-The bot saves structured logs to `telegram-bot/bot.log` while maintaining a clean, human-readable terminal output. Monitor them in real-time:
+Once a build is triggered via Telegram, watch the entire live process (repo syncing, ROM compiling, and artifact uploading) inside the persistent `tmux` console with a single command from anywhere on the server:
+
 ```bash
-tail -f telegram-bot/bot.log
+axmon
+# or: bash monitor.sh
 ```
 
-### Persistent Console
-Monitor the raw build environment from the server:
-```bash
-TMUX= tmux attach -t axion_build
-```
+*   Attaches directly to the live `axion_build` `tmux` session (or waits and auto-attaches the instant the job starts).
+*   Press **`Ctrl+B`, then `D`** to detach at any time without interrupting the build.

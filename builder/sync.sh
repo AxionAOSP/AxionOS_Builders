@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 set -o pipefail
 LOCAL_MANIFEST_URL="$1"
 LOCAL_MANIFEST_PATH=".repo/local_manifests/jenkins_custom_manifest.xml"

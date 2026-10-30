@@ -7,3 +7,4 @@ progress.txt
 sync_progress.txt
 .venv/
 venv/
+install-service.sh

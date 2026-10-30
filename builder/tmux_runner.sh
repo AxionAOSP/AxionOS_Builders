@@ -17,13 +17,17 @@ trap 'cleanup' SIGINT SIGTERM
 
 # Unset outer TMUX variable so nested/sandboxed tmux uses TMUX_TMPDIR cleanly
 unset TMUX
+export TERM="${TERM:-xterm-256color}"
+export LC_BYOBU=0
+export DISABLE_BYOBU=true
 if [ -n "$TMUX_TMPDIR" ]; then
     mkdir -p "$TMUX_TMPDIR" 2>/dev/null || true
 fi
 
-# Check if session already exists; create only if missing
+# Check if session already exists; create with a fresh login shell (bash -l) so all server profiles load
 if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    tmux new-session -d -s "$SESSION_NAME" || exit 1
+    tmux new-session -d -s "$SESSION_NAME" "/bin/bash -l" || exit 1
+    sleep 1
 fi
 
 if [ -n "$LOG_FILE" ]; then

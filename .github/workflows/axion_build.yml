@@ -168,8 +168,11 @@ jobs:
 
       - name: Notify Success
         if: steps.build_rom.outputs.BUILD_SUCCESS == 'true'
-        run: python3 builder/reporter.py --status success 2>&1 | tee "${{ github.workspace }}/upload.log"
-
+        run: |
+          ${{ github.workspace }}/builder/tmux_runner.sh \
+            "axion_build" \
+            "python3 ${{ github.workspace }}/builder/reporter.py --status success" \
+            "${{ github.workspace }}/upload.log"
       - name: Notify Failure
         if: failure()
         run: python3 builder/reporter.py --status failure
