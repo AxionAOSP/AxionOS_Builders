@@ -5,8 +5,10 @@ LOG_FILE="$3"
 PROGRESS_FILE="$4"
 
 EXEC_ID=$(date +%s%N | cut -b1-13)
-EXIT_CODE_FILE="/tmp/${SESSION_NAME}_${EXEC_ID}_exit"
-DONE_FILE="/tmp/${SESSION_NAME}_${EXEC_ID}_done"
+STATE_DIR="${HOME}/.cache/axion_ci"
+mkdir -p "$STATE_DIR" 2>/dev/null || STATE_DIR="/tmp"
+EXIT_CODE_FILE="${STATE_DIR}/${SESSION_NAME}_${EXEC_ID}_exit"
+DONE_FILE="${STATE_DIR}/${SESSION_NAME}_${EXEC_ID}_done"
 
 cleanup() {
     tmux send-keys -t "$SESSION_NAME" C-c

@@ -2,6 +2,5 @@ python-telegram-bot
 redis>=4.2.0
 python-dotenv
 requests
-PyGithub
 httpx
 boto3

@@ -19,8 +19,8 @@ find .repo/ -name "*.lock" -delete 2>/dev/null
 
 # Discard uncommitted changes and untracked garbage in all active repositories to prevent sync failures
 if [ -d ".repo" ]; then
-    echo "Cleaning uncommitted or dirty changes in all repositories..."
-    repo forall -j"$(nproc --all)" -c "git reset --hard HEAD && git clean -qdf"
+    echo "Cleaning uncommitted or dirty changes in repositories..."
+    repo forall -j"$(nproc --all)" -c '[ "$REPO_PATH" = "build/soong" ] || { [ -n "$(git status --porcelain 2>/dev/null)" ] && git reset --hard HEAD && git clean -qdf; }; true'
 fi
 
 rm -rf .repo/local_manifests/*
@@ -37,11 +37,7 @@ if [ -n "$LOCAL_MANIFEST_URL" ]; then
     curl -fsSL -o "$LOCAL_MANIFEST_PATH" "$LOCAL_MANIFEST_URL" || exit 1
 fi
 
-repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all) || exit 1
-
-. build/envsetup.sh || exit 1
-axionSync || exit 1
-
+repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j24 || exit 1
 # Restore keys if backup exists
 if [ -d "$KEY_BACKUP_DIR" ] && [ "$(ls -A "$KEY_BACKUP_DIR" 2>/dev/null)" ]; then
     echo "🔑 Restoring keys from $KEY_BACKUP_DIR to vendor/lineage-priv/keys..."

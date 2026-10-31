@@ -202,22 +202,52 @@ def main():
     parser.add_argument('--build-type', default=os.environ.get('RELEASETYPE', 'userdebug'))
     parser.add_argument('--gms', default=os.environ.get('GMS_VARIANT', 'GMS'))
     parser.add_argument('--user', default=os.environ.get('BUILD_USER', 'GitHub-Action'))
-    parser.add_argument('--chat-id', default=os.environ.get('TELEGRAM_CHAT_ID'))
+    parser.add_argument('--chat-id', default=os.environ.get('TELEGRAM_CHAT_ID') or os.environ.get('CHANNEL_ID'))
     parser.add_argument('--topic-builder', default=os.environ.get('TOPIC_BUILDER', 'none'))
     parser.add_argument('--topic-error-logs', default=os.environ.get('TOPIC_ERROR_LOGS', 'none'))
     parser.add_argument('--topic-release-json', default=os.environ.get('TOPIC_RELEASE_JSON', 'none'))
-    parser.add_argument('--token', default=os.environ.get('TELEGRAM_TOKEN'))
+    parser.add_argument('--token', default=os.environ.get('TELEGRAM_TOKEN') or os.environ.get('BOT_TOKEN'))
     parser.add_argument('--build-url', default=default_build_url)
     parser.add_argument('--run-id', default=default_run_id)
     parser.add_argument('--release-status', default="No")
-    parser.add_argument('--source-dir', default=os.environ.get('AOSP_SOURCE_DIR', ''))
+    parser.add_argument('--source-dir', default=os.environ.get('AOSP_SOURCE_DIR') or os.path.expanduser('~/android/source'))
     parser.add_argument('--full-clean', default=os.environ.get('FULLCLEAN', 'No'))
     parser.add_argument('--upload-cdn', default=os.environ.get('UPLOAD_CDN', 'No'))
     args = parser.parse_args()
 
+    redis_url = os.environ.get("REDIS_URL") or "redis://localhost:16379/4"
+    try: redis_client = redis.from_url(redis_url, decode_responses=True) if redis else None
+    except Exception: redis_client = None
+    workspace = os.environ.get('GITHUB_WORKSPACE') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    if not args.device and redis_client:
+        try:
+            args.device = redis_client.get("active_build_device")
+            if args.device:
+                raw = redis_client.get(f"build_status:{args.device}")
+                if raw:
+                    saved = json.loads(raw)
+                    args.build_type = saved.get("type") or args.build_type
+                    args.gms = saved.get("gms") or args.gms
+                    args.user = saved.get("user") or args.user
+                    args.build_url = saved.get("url") or args.build_url
+                    args.run_id = saved.get("run_id") or args.run_id
+                    args.chat_id = saved.get("chat_id") or args.chat_id
+                    args.topic_builder = saved.get("topic_id") or args.topic_builder
+        except Exception:
+            pass
+
+    if not args.device:
+        build_log = os.path.join(workspace, "build.log")
+        if os.path.exists(build_log):
+            for line in reversed(get_file_tail(build_log, 500).splitlines()):
+                m = re.search(r"out/target/product/([^/\s]+)/", line)
+                if m:
+                    args.device = m.group(1)
+                    break
+
     bot = TelegramBot(args.token)
-    workspace = os.environ.get('GITHUB_WORKSPACE', '.')
-    out_dir = os.path.join(args.source_dir, 'out', 'target', 'product', args.device)
+    out_dir = os.path.join(args.source_dir, 'out', 'target', 'product', args.device or 'unknown')
     msg_id_file = os.path.join(workspace, ".build_msg_id")
     user_display = f"@{escape_markdown_v2(args.user)}"
 
@@ -229,11 +259,6 @@ def main():
         f"└ 🧹 *Clean*   : `{escape_code(args.full_clean)}`\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━"
     )
-
-    redis_url = os.environ.get("REDIS_URL") or "redis://localhost:16379/4"
-    try: redis_client = redis.from_url(redis_url, decode_responses=True) if redis else None
-    except Exception: redis_client = None
-
     def update_redis(s, p=None, m_id=None):
         if not redis_client: return
         try:
@@ -392,14 +417,28 @@ def main():
         bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2')
     elif args.status == 'success':
         rom_file = None
+        build_duration = None
         build_log = os.path.join(workspace, "build.log")
         if os.path.exists(build_log):
             for line in reversed(get_file_tail(build_log, 500).splitlines()):
-                if "Package Complete:" in line:
+                if not rom_file and "Package Complete:" in line:
                     path = line.split("Package Complete:")[-1].strip()
                     if os.path.exists(path): rom_file = path
                     elif os.path.exists(os.path.join(args.source_dir, path)): rom_file = os.path.join(args.source_dir, path)
-                    if rom_file: break
+                if not build_duration and "#### build completed successfully (" in line:
+                    m_time = re.search(r"#### build completed successfully \((.+?)\)\s*####", line)
+                    if m_time:
+                        raw_t = m_time.group(1).strip()
+                        m_hms = re.match(r"^(\d+):(\d+):(\d+)\s*\(hh:mm:ss\)$", raw_t)
+                        m_ms = re.match(r"^(\d+):(\d+)\s*\(mm:ss\)$", raw_t)
+                        if m_hms:
+                            build_duration = f"{int(m_hms.group(1))}h {int(m_hms.group(2))}m {int(m_hms.group(3))}s"
+                        elif m_ms:
+                            build_duration = f"{int(m_ms.group(1))}m {int(m_ms.group(2))}s"
+                        else:
+                            build_duration = raw_t
+                if rom_file and build_duration:
+                    break
         if not rom_file:
             bot.send_message(args.chat_id, "⚠️ **Success but Artifact Not Found**", topic_id=args.topic_builder)
             return
@@ -484,8 +523,18 @@ def main():
         if json_url: last_row.append({"text": "📄 OTA JSON", "url": json_url})
         last_row.append({"text": "📊 VIEW RUN", "url": args.build_url})
         btns.append(last_row)
-
-        msg = f"✨ *BUILD COMPLETED SUCCESSFULLY*\n{info_block}\n\n📦 *Artifacts are ready:*"
+        success_info = info_block
+        if build_duration:
+            success_info = (
+                f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"├ 📱 *Device*  : `{escape_code(args.device)}`\n"
+                f"├ 👤 *Trigger* : {user_display}\n"
+                f"├ 🧬 *Variant* : `{escape_code(args.gms)}` \\- `{escape_code(args.build_type)}`\n"
+                f"├ 🧹 *Clean*   : `{escape_code(args.full_clean)}`\n"
+                f"└ ⏱️ *Time*    : `{escape_code(build_duration)}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━"
+            )
+        msg = f"✨ *BUILD COMPLETED SUCCESSFULLY*\n{success_info}\n\n📦 *Artifacts are ready:*"
         bot.send_message(args.chat_id, msg, topic_id=args.topic_builder, parse_mode='MarkdownV2', reply_markup={"inline_keyboard": btns})
 
 if __name__ == "__main__":

@@ -135,9 +135,6 @@ jobs:
           SYNC_MONITOR_PID=$!
           trap 'kill $SYNC_MONITOR_PID 2>/dev/null || true' EXIT
 
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           SYNC_CMD="export AOSP_MANIFEST_URL=\"$AOSP_MANIFEST_URL\"; export AOSP_MANIFEST_BRANCH=\"$AOSP_MANIFEST_BRANCH\"; cd $AOSP_SOURCE_DIR && ${{ github.workspace }}/builder/sync.sh \"$LOCAL_MANIFEST\""
 
           ${{ github.workspace }}/builder/tmux_runner.sh \
@@ -169,10 +166,20 @@ jobs:
       - name: Notify Success
         if: steps.build_rom.outputs.BUILD_SUCCESS == 'true'
         run: |
+          mkdir -p "$HOME/.cache/axion_ci"
+          python3 -c '
+          import os, shlex
+          keys = [k for k in os.environ if k.startswith(("DEVICE", "RELEASETYPE", "FULLCLEAN", "UPLOAD_CDN", "GMS_VARIANT", "BUILD_USER", "TELEGRAM_", "TOPIC_", "R2_", "AOSP_", "GITHUB_"))]
+          with open(os.path.expanduser("~/.cache/axion_ci/job.env"), "w") as f:
+              for k in keys:
+                  f.write(f"export {k}={shlex.quote(os.environ[k])}\n")
+          '
+          chmod 600 "$HOME/.cache/axion_ci/job.env"
           ${{ github.workspace }}/builder/tmux_runner.sh \
             "axion_build" \
-            "python3 ${{ github.workspace }}/builder/reporter.py --status success" \
+            ". \"$HOME/.cache/axion_ci/job.env\" && python3 ${{ github.workspace }}/builder/reporter.py --status success; rm -f \"$HOME/.cache/axion_ci/job.env\"" \
             "${{ github.workspace }}/upload.log"
+
       - name: Notify Failure
         if: failure()
         run: python3 builder/reporter.py --status failure
